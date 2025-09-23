@@ -1,0 +1,20 @@
+spring:
+  application:
+    name: ai-code-creator
+server:
+  port: 8123
+  servlet:
+    context-path: /api
+
+
+
+knife4j:
+  enable: true
+  openapi:
+    title: ????
+    version: 1.0
+    group:
+      default:
+        api-rule: package
+        api-rule-resources:
+          com/example/code/controller
