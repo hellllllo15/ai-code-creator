@@ -1,3 +1,14 @@
+
+
+### CUSTOM ###
+# Ignore local profile configs
+application-local.yml
+src/main/resources/application-local.yml
+
+# Ignore local tmp workspace
+tmp/
+tmp/**
+
 HELP.md
 target/
 .mvn/wrapper/maven-wrapper.jar

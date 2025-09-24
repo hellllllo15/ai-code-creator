@@ -8,6 +8,10 @@ spring:
     username: root
     password: 123456
 
+
+  profiles:
+    active: local
+
 server:
   port: 8123
   servlet:
@@ -25,3 +29,5 @@ knife4j:
         api-rule: package
         api-rule-resources:
           com/example/code/controller
+
+

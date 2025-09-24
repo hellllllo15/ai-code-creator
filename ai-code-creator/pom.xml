@@ -97,8 +97,25 @@
 			<version>2.5.4</version> <!-- 使用与你的 Spring Boot 版本兼容的版本 -->
 		</dependency>
 
+<!--		langchain4j-->
+		<dependency>
+			<groupId>dev.langchain4j</groupId>
+			<artifactId>langchain4j</artifactId>
+			<version>1.1.0</version>
+		</dependency>
+		<dependency>
+			<groupId>dev.langchain4j</groupId>
+			<artifactId>langchain4j-open-ai-spring-boot-starter</artifactId>
+			<version>1.1.0-beta7</version>
+		</dependency>
 
 
+<!--	langchain4j	流式输出-->
+		<dependency>
+			<groupId>dev.langchain4j</groupId>
+			<artifactId>langchain4j-reactor</artifactId>
+			<version>1.1.0-beta7</version>
+		</dependency>
 
 
 
