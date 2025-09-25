@@ -10,7 +10,8 @@ import com.example.code.ai.model.enums.CodeGenTypeEnum;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 
-/// 将代码保存到文件中
+/// 将代码保存到文件中  废弃
+@Deprecated
 public class CodeFileSaver {
 
     // 文件保存根目录
