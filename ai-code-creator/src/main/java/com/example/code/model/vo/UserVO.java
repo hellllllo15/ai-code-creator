@@ -6,7 +6,7 @@ import java.io.Serializable;
 import java.time.LocalDateTime;
 
 @Data
-/// 分页获取用户脱毛
+/// 分页获取用户脱敏
 public class UserVO implements Serializable {
 
     /**
