@@ -1,0 +1,23 @@
+# 忽略临时文件夹
+tmp/
+tmp/**
+
+# 忽略IDE配置文件
+.idea/
+.vscode/
+*.iml
+*.ipr
+*.iws
+
+# 忽略系统文件
+.DS_Store
+Thumbs.db
+
+# 忽略日志文件
+*.log
+logs/
+
+# 忽略编译输出
+target/
+dist/
+build/
