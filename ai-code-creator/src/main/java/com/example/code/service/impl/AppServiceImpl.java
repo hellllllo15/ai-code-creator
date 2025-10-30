@@ -87,10 +87,18 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         app.setAppName(addRequest.getAppName());
         app.setInitPrompt(addRequest.getInitPrompt());
         app.setCover(addRequest.getCover());
-       // app.setCodeGenType(addRequest.getCodeGenType());
-
-        //暂时为多文件生成
-        app.setCodeGenType(CodeGenTypeEnum.MULTI_FILE.getValue());
+        
+        // 校验生成模式参数
+        String codeGenType = addRequest.getCodeGenType();
+        if (StrUtil.isBlank(codeGenType)) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "codeGenType 必填");
+        }
+        // 验证生成模式是否为有效的枚举值
+        CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(codeGenType);
+        if (codeGenTypeEnum == null) {
+            throw new BusinessException(ErrorCode.PARAMS_ERROR, "不支持的代码生成类型：" + codeGenType + "，支持的类型：html、multi_file、vue_project");
+        }
+        app.setCodeGenType(codeGenType);
         app.setUserId(loginUser.getId());
         boolean saved = this.save(app);
         if (!saved) {
