@@ -52,7 +52,13 @@
         }"
         class="relative border-r border-gray-700"
       >
-        <ChatPanel :opacity="chatPanelOpacityValue" @generate-code="handleGenerateCode" />
+        <ChatPanel 
+          :opacity="chatPanelOpacityValue" 
+          :app-id="appId"
+          :initial-message="initialMessage"
+          @generate-code="handleGenerateCode"
+          @code-generated="handleCodeGenerated" 
+        />
       </div>
 
       <!-- 可调节分隔栏 -->
@@ -63,13 +69,19 @@
 
       <!-- 右侧面板 -->
       <div
-        :style="{ 
-          width: `${100 - leftWidth}%`, 
-          ...rightPanelStyle
-        }"
+        :style="{ width: `${100 - leftWidth}%`, ...rightPanelStyle }"
         class="relative border-l border-gray-700"
       >
-        <PreviewPanel :opacity="previewPanelOpacityValue" :generated-code="generatedCode" />
+        <PreviewPanel 
+          ref="previewPanelRef"
+          :opacity="previewPanelOpacityValue" 
+          :generated-code="generatedCode"
+          :preview-url="previewUrl"
+          :app-id="appId"
+          :code-gen-type="appInfo?.codeGenType"
+          :no-preview-mode="noPreviewMode"
+          @toggle-no-preview="handleToggleNoPreview"
+        />
       </div>
     </div>
 
@@ -81,16 +93,31 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
+import { useRoute } from 'vue-router';
 import { Sparkles, Zap } from 'lucide-vue-next';
 import SciFiBackground from './components/SciFiBackground.vue';
 import ChatPanel from './components/ChatPanel.vue';
 import PreviewPanel from './components/PreviewPanel.vue';
 import ResizableDivider from './components/ResizableDivider.vue';
+import { getMyById } from '../../api/appController';
+import { getStaticPreviewUrl } from '../../config/env';
+import { CodeGenTypeEnum } from '../../utils/codeGenTypes';
+import * as API from '../../api/typings';
+import type { ComponentPublicInstance } from 'vue';
 import './index.css';
 
+const route = useRoute();
 const leftWidth = ref(40);
 const generatedCode = ref('');
+const previewUrl = ref<string | null>(null);
+const appInfo = ref<any>(null);
+const debugEnabled = ref(route.query.debug === '1');
+const previewPanelRef = ref<ComponentPublicInstance<{ checkPreviewUrlStatus: (url: string) => Promise<boolean>; refreshPreview: () => void }> | null>(null);
+
+// 从路由参数获取appId和初始消息（同步获取，确保ChatPanel能立即收到props）
+const appId = ref<string | null>((route.query.appId as string) || null);
+const initialMessage = ref<string | null>((route.query.message as string) || null);
 
 // 透明度控制值
 const headerOpacityValue = ref(0.4);
@@ -145,13 +172,124 @@ const zapRotationStyle = computed(() => ({
   transition: 'transform 0.1s linear',
 }));
 
+// 获取应用信息并更新预览
+const fetchAppInfo = async () => {
+  if (!appId.value) return;
+
+  try {
+    const response = await getMyById({
+      id: appId.value as any,
+    });
+
+    if (response && response.code === 0 && response.data) {
+      appInfo.value = response.data;
+      updatePreview();
+    }
+  } catch (error) {
+    console.error('获取应用信息失败:', error);
+  }
+};
+
+// 更新预览URL
+const updatePreview = () => {
+  if (appId.value && appInfo.value?.codeGenType) {
+    previewUrl.value = getStaticPreviewUrl(appInfo.value.codeGenType, appId.value);
+  } else {
+    previewUrl.value = null;
+  }
+};
+
+// 监听 appId 变化，重新获取应用信息
+watch(appId, (newAppId) => {
+  if (newAppId) {
+    fetchAppInfo();
+  } else {
+    previewUrl.value = null;
+    appInfo.value = null;
+  }
+});
+
+// 监听代码生成完成，刷新预览
+const handleCodeGenerated = async () => {
+  console.log('代码生成完成，准备刷新预览页面');
+  
+  // 延迟刷新，确保后端已完成文件保存和处理
+  setTimeout(() => {
+    // 直接刷新预览iframe，因为URL通常不会改变，只是内容更新了
+    if (previewPanelRef.value && typeof previewPanelRef.value.refreshPreview === 'function') {
+      console.log('刷新预览iframe');
+      previewPanelRef.value.refreshPreview();
+    } else {
+      console.warn('预览面板引用不可用，无法刷新');
+    }
+    
+    // 可选：如果需要更新应用信息，可以异步获取（不阻塞刷新）
+    // 延迟更新应用信息，避免影响刷新速度
+    setTimeout(async () => {
+      if (!appId.value) return;
+      
+      try {
+        const response = await getMyById({
+          id: appId.value as any,
+        });
+
+        if (response && response.code === 0 && response.data) {
+          const newAppInfo = response.data;
+          const newCodeGenType = newAppInfo.codeGenType;
+          
+          // 生成新的预览URL
+          const newPreviewUrl = newCodeGenType && appId.value 
+            ? getStaticPreviewUrl(newCodeGenType, appId.value)
+            : null;
+          
+          // 如果预览URL变化了，检查新的预览URL是否正常后再更新
+          if (newPreviewUrl && newPreviewUrl !== previewUrl.value) {
+            console.log('预览URL发生变化，检查新URL:', newPreviewUrl);
+            
+            if (previewPanelRef.value && typeof previewPanelRef.value.checkPreviewUrlStatus === 'function') {
+              const isUrlValid = await previewPanelRef.value.checkPreviewUrlStatus(newPreviewUrl);
+              
+              if (isUrlValid) {
+                console.log('新预览URL正常，更新预览URL并刷新');
+                appInfo.value = newAppInfo;
+                previewUrl.value = newPreviewUrl;
+                // URL变化会自动触发watch刷新，所以不需要手动刷新
+              } else {
+                console.warn('新预览URL异常，保持原预览页面');
+              }
+            } else {
+              // 没有检查方法，直接更新
+              appInfo.value = newAppInfo;
+              previewUrl.value = newPreviewUrl;
+            }
+          }
+        }
+      } catch (error) {
+        console.error('获取应用信息失败:', error);
+      }
+    }, 2000); // 延迟2秒异步更新，不影响预览刷新
+  }, 2000); // 延迟2秒刷新，确保后端文件已保存
+};
+
 // 动画循环
 let logoGlowInterval: number;
 let zapRotationInterval: number;
 
+const noPreviewMode = ref(false);
+const showPreviewPanel = computed(() => previewUrl.value && !noPreviewMode.value);
+
+function handleToggleNoPreview() {
+  noPreviewMode.value = !noPreviewMode.value;
+}
+
 onMounted(() => {
   // 添加home页面特定类到body
   document.body.classList.add('home-page-active');
+  
+  // 如果已有appId，获取应用信息
+  if (appId.value) {
+    fetchAppInfo();
+  }
   
   // 入场动画
   setTimeout(() => {

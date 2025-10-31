@@ -37,6 +37,7 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
 import NavBar from './components/NavBar.vue'
 import AIChatSection from './components/AIChatSection.vue'
 import ProjectShowcase from './components/ProjectShowcase.vue'
@@ -45,8 +46,10 @@ import ParticleSystem from './components/effects/ParticleSystem.vue'
 import ScanLines from './components/effects/ScanLines.vue'
 import HolographicGrid from './components/effects/HolographicGrid.vue'
 import PageLoader from './components/PageLoader.vue'
+import { createApp } from '../../api/appController'
 import './style.css'
 
+const router = useRouter()
 const isLoading = ref(true)
 
 onMounted(() => {
@@ -55,8 +58,37 @@ onMounted(() => {
   }, 2000)
 })
 
-const handleSendPrompt = (prompt: string) => {
-  console.log('发送提示:', prompt)
+type CodeGenType = 'html' | 'multi_file' | 'vue_project'
+
+const handleSendPrompt = async (prompt: string, codeGenType: CodeGenType) => {
+  try {
+    // 调用创建应用接口
+    const response = await createApp({
+      initPrompt: prompt,
+      codeGenType: codeGenType,
+      appName: prompt.substring(0, 20) || '我的应用', // 使用提示词的前20个字符作为应用名称
+    })
+
+    if (response.code === 0 && response.data) {
+      // 将Long类型转换为字符串，避免精度丢失
+      const appIdStr = String(response.data)
+      
+      // 跳转到home页面，传递应用ID作为查询参数（字符串形式）
+      router.push({
+        path: '/home',
+        query: {
+          appId: appIdStr,
+          message: prompt, // 同时传递初始消息
+        },
+      })
+    } else {
+      console.error('创建应用失败:', response.message)
+      alert(response.message || '创建应用失败')
+    }
+  } catch (error: any) {
+    console.error('创建应用错误:', error)
+    alert(error.message || '创建应用失败，请重试')
+  }
 }
 </script>
 

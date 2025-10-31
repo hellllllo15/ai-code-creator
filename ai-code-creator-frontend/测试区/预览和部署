@@ -1,0 +1,34 @@
+预览与部署地址拼接说明（前端）
+
+一、预览地址（Preview）
+- 后端静态资源前缀：/api/static
+- 目录规则：{codeGenType}_{appId}
+- 生成规则（与前端一致）：
+  - 非 Vue 项目：/api/static/{codeGenType}_{appId}/
+  - Vue 项目：/api/static/{codeGenType}_{appId}/dist/index.html
+
+示例：
+- HTML：/api/static/html_123/
+- 多文件：/api/static/multi_file_456/
+- Vue 项目：/api/static/vue_project_789/dist/index.html
+
+前端参考（已存在）：getStaticPreviewUrl(codeGenType, appId)
+等价逻辑：
+  base = `${API_BASE_URL}/static/${codeGenType}_${appId}/`
+  if (codeGenType === 'vue_project') return base + 'dist/index.html'
+  else return base
+
+二、部署地址（Deploy）
+- 后端部署域名：AppConstant.CODE_DEPLOY_HOST（默认 http://localhost）
+- 部署目录：/tmp/code_deploy/{deployKey}
+- 访问路径：{CODE_DEPLOY_HOST}/{deployKey}/
+
+说明：
+- deployKey 由后端在部署时生成（6 位字母数字），前端在调用“部署接口”后，从返回值中直接获得完整部署地址，无需拼接。
+
+三、前端最小使用流程
+1）获取应用信息（含 codeGenType、appId）→ 拼接预览地址
+2）点击“部署”→ 调用 /app/deploy → 使用返回的 URL 打开已部署页面
+
+
+

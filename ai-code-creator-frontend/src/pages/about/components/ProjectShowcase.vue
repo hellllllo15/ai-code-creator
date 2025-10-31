@@ -2,18 +2,29 @@
   <div class="space-y-8">
     <!-- 标题 -->
     <h2 class="text-4xl text-center font-bold bg-gradient-to-r from-purple-400 via-pink-400 to-blue-400 text-transparent bg-clip-text">
-      精选 AI 生成项目
+      我的项目
     </h2>
 
+    <!-- 加载状态 -->
+    <div v-if="loading" class="flex justify-center items-center py-12">
+      <div class="w-8 h-8 border-4 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
+    </div>
+
+    <!-- 空状态 -->
+    <div v-else-if="!projects || projects.length === 0" class="text-center py-12">
+      <p class="text-purple-300/70 text-lg">暂无项目，快去创建一个吧！</p>
+    </div>
+
     <!-- 项目网格 -->
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
+    <div v-else class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
       <div
         v-for="(project, index) in projects"
         :key="project.id"
-        class="project-card"
+        class="project-card cursor-pointer"
         :style="{ animationDelay: `${index * 0.15}s` }"
         @mouseenter="hoveredProject = project.id"
         @mouseleave="hoveredProject = null"
+        @click="handleProjectClick(project.id)"
       >
         <!-- 能量连接线 -->
         <div v-if="hoveredProject === project.id" class="energy-beam" />
@@ -26,21 +37,23 @@
           </div>
 
           <!-- 项目图片 -->
-          <div class="relative h-48 overflow-hidden">
+          <div class="relative h-48 overflow-hidden bg-gradient-to-br from-purple-900/50 to-pink-900/50">
             <img
-              :src="project.image"
-              :alt="project.name"
+              v-if="project.cover"
+              :src="project.cover"
+              :alt="project.appName"
               class="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+              @error="handleImageError"
             />
+            <div v-else class="w-full h-full flex items-center justify-center">
+              <div class="text-purple-300/50 text-4xl">🚀</div>
+            </div>
             <div class="absolute inset-0 bg-gradient-to-t from-black via-transparent to-transparent" />
             
             <!-- 悬停覆盖层 -->
             <div class="absolute inset-0 bg-purple-900/80 backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity duration-500 flex items-center justify-center">
               <div class="text-center p-4">
-                <p class="text-white text-sm">{{ project.description }}</p>
-                <button class="mt-4 px-4 py-2 bg-gradient-to-r from-purple-500 to-pink-500 rounded-lg text-white text-sm hover:scale-105 transition-transform">
-                  查看详情
-                </button>
+                <p class="text-white text-sm line-clamp-3">{{ project.initPrompt || '点击查看详情' }}</p>
               </div>
             </div>
           </div>
@@ -48,17 +61,22 @@
           <!-- 项目信息 -->
           <div class="p-6">
             <h3 class="text-xl mb-3 text-white group-hover:text-glow transition-all">
-              {{ project.name }}
+              {{ project.appName || '未命名项目' }}
             </h3>
             
             <!-- 技术标签 -->
             <div class="flex flex-wrap gap-2">
               <span
-                v-for="tech in project.techs"
-                :key="tech"
+                v-if="project.codeGenType"
                 class="px-3 py-1 text-xs rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30"
               >
-                {{ tech }}
+                {{ getCodeGenTypeLabel(project.codeGenType) }}
+              </span>
+              <span
+                v-if="project.createTime"
+                class="px-3 py-1 text-xs rounded-full bg-purple-500/20 text-purple-300 border border-purple-500/30"
+              >
+                {{ formatDate(project.createTime) }}
               </span>
             </div>
           </div>
@@ -72,62 +90,96 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from 'vue'
+import { ref, onMounted } from 'vue'
+import { useRouter } from 'vue-router'
+import { listMy } from '../../../api/appController'
 
+// 定义项目接口类型
 interface Project {
-  id: number
-  name: string
-  description: string
-  image: string
-  techs: string[]
+  id?: number | string // ID可能是字符串（经过响应拦截器转换）
+  appName?: string
+  cover?: string
+  initPrompt?: string
+  codeGenType?: string
+  createTime?: string
 }
 
+const router = useRouter()
 const hoveredProject = ref<number | null>(null)
+const projects = ref<Project[]>([])
+const loading = ref(true)
 
-const projects: Project[] = [
-  {
-    id: 1,
-    name: '现代登录界面',
-    description: '具有渐变背景和动画效果的登录页面',
-    image: 'https://images.unsplash.com/photo-1633356122544-f134324a6cee?w=400&h=300&fit=crop',
-    techs: ['Vue 3', 'Tailwind', 'TypeScript']
-  },
-  {
-    id: 2,
-    name: '数据仪表板',
-    description: '实时数据可视化管理后台',
-    image: 'https://images.unsplash.com/photo-1551288049-bebda4e38f71?w=400&h=300&fit=crop',
-    techs: ['React', 'Chart.js', 'Redux']
-  },
-  {
-    id: 3,
-    name: '电商平台',
-    description: '功能完整的在线购物网站',
-    image: 'https://images.unsplash.com/photo-1472851294608-062f824d29cc?w=400&h=300&fit=crop',
-    techs: ['Next.js', 'Stripe', 'MongoDB']
-  },
-  {
-    id: 4,
-    name: '博客系统',
-    description: '支持Markdown的现代博客平台',
-    image: 'https://images.unsplash.com/photo-1499750310107-5fef28a66643?w=400&h=300&fit=crop',
-    techs: ['Vue 3', 'Nuxt', 'Markdown']
-  },
-  {
-    id: 5,
-    name: '聊天应用',
-    description: '实时消息传递和视频通话',
-    image: 'https://images.unsplash.com/photo-1611606063065-ee7946f0787a?w=400&h=300&fit=crop',
-    techs: ['React', 'Socket.io', 'WebRTC']
-  },
-  {
-    id: 6,
-    name: '个人作品集',
-    description: '展示你的项目和技能',
-    image: 'https://images.unsplash.com/photo-1467232004584-a241de8bcf5d?w=400&h=300&fit=crop',
-    techs: ['Vue 3', 'GSAP', 'Three.js']
+// 获取项目列表
+const loadProjects = async () => {
+  try {
+    loading.value = true
+    const response = await listMy({
+      pageNum: 1,
+      pageSize: 20,
+      sortField: 'createTime',
+      sortOrder: 'descend',
+    })
+    
+    if (response.code === 0 && response.data) {
+      // 处理项目列表，确保ID以字符串形式保存，避免精度丢失
+      const records = response.data.records || []
+      projects.value = records.map((project: any) => ({
+        ...project,
+        // 保持id为原值，但确保在传递时转换为字符串
+        id: project.id !== undefined ? project.id : undefined,
+      }))
+    } else {
+      console.error('获取项目列表失败:', response.message)
+    }
+  } catch (error: any) {
+    console.error('获取项目列表错误:', error)
+  } finally {
+    loading.value = false
   }
-]
+}
+
+// 点击项目跳转
+const handleProjectClick = (appId: number | string | undefined) => {
+  if (appId === undefined || appId === null) return
+  
+  // 确保appId是字符串格式（响应拦截器已将ID字段转换为字符串）
+  const appIdStr = typeof appId === 'string' ? appId : String(appId)
+  
+  // 跳转到home页面，只传递appId，不传递message
+  router.push({
+    path: '/home',
+    query: {
+      appId: appIdStr,
+    },
+  })
+}
+
+// 图片加载错误处理
+const handleImageError = (e: Event) => {
+  const img = e.target as HTMLImageElement
+  img.style.display = 'none'
+}
+
+// 获取代码生成类型标签
+const getCodeGenTypeLabel = (codeGenType?: string) => {
+  const map: Record<string, string> = {
+    html: 'HTML',
+    multi_file: '多文件',
+    vue_project: 'Vue项目',
+  }
+  return map[codeGenType || ''] || codeGenType || '未知'
+}
+
+// 格式化日期
+const formatDate = (dateStr?: string) => {
+  if (!dateStr) return ''
+  const date = new Date(dateStr)
+  return date.toLocaleDateString('zh-CN')
+}
+
+onMounted(() => {
+  loadProjects()
+})
 </script>
 
 <style scoped>

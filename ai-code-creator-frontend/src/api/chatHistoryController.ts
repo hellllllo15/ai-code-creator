@@ -24,7 +24,10 @@ export async function listAppChatHistory(
   options?: { [key: string]: any }
 ) {
   const { appId: param0, ...queryParams } = params
-  return request<API.BaseResponsePageChatHistory>(`/chatHistory/app/${param0}`, {
+  // 关键修复：将appId转换为字符串，避免大整数精度丢失
+  // 无论是number还是string类型，都转换为字符串放入URL路径
+  const appIdStr = String(param0)
+  return request<API.BaseResponsePageChatHistory>(`/chatHistory/app/${appIdStr}`, {
     method: 'GET',
     params: {
       // pageSize has a default value: 10

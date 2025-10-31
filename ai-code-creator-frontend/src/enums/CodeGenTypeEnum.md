@@ -61,3 +61,5 @@ await createApp({
 - 生成代码接口 `/app/chat/gen/code` 不需要传入生成模式参数，会自动使用应用创建时设置的模式
 
 
+
+

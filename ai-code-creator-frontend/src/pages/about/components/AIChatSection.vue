@@ -24,7 +24,12 @@
                 <Bot class="w-5 h-5 text-white" />
               </div>
               <div class="glass rounded-2xl p-4 border border-purple-500/20">
-                <p class="text-purple-100 typing-effect">{{ msg.content }}</p>
+                <p v-if="msg.content" class="text-purple-100 typing-effect">{{ msg.content }}</p>
+                <div v-if="msg.loading" class="flex gap-2">
+                  <div class="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style="animation-delay: 0s" />
+                  <div class="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style="animation-delay: 0.2s" />
+                  <div class="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style="animation-delay: 0.4s" />
+                </div>
               </div>
             </div>
 
@@ -39,19 +44,6 @@
             </div>
           </div>
 
-          <!-- AI 输入中 -->
-          <div v-if="isTyping" class="flex gap-3">
-            <div class="w-10 h-10 rounded-full bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center animate-pulse">
-              <Bot class="w-5 h-5 text-white" />
-            </div>
-            <div class="glass rounded-2xl p-4 border border-purple-500/30">
-              <div class="flex gap-2">
-                <div class="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style="animation-delay: 0s" />
-                <div class="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style="animation-delay: 0.2s" />
-                <div class="w-2 h-2 bg-purple-400 rounded-full animate-bounce" style="animation-delay: 0.4s" />
-              </div>
-            </div>
-          </div>
         </div>
 
         <!-- 输入框 -->
@@ -82,26 +74,32 @@
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick } from 'vue'
+import { ref, nextTick, onUnmounted } from 'vue'
 import { Bot, User, Send } from 'lucide-vue-next'
 import QuickPrompts from './QuickPrompts.vue'
 import CodeGenTypeSelector from './CodeGenTypeSelector.vue'
+import { createApp } from '../../../api/appController'
+import request from '../../../request'
 
 type CodeGenType = 'html' | 'multi_file' | 'vue_project'
 
 interface Message {
   role: 'user' | 'ai'
   content: string
+  loading?: boolean
 }
 
 const emit = defineEmits<{
-  (e: 'send-prompt', prompt: string): void
+  (e: 'send-prompt', prompt: string, codeGenType: CodeGenType): void
 }>()
 
 const inputText = ref('')
 const isTyping = ref(false)
+const isStreaming = ref(false)
 const messagesContainer = ref<HTMLElement | null>(null)
 const selectedCodeGenType = ref<CodeGenType>('multi_file')
+const currentAppId = ref<string | null>(null)
+let currentEventSource: EventSource | null = null
 
 const messages = ref<Message[]>([
   {
@@ -110,27 +108,194 @@ const messages = ref<Message[]>([
   }
 ])
 
-const sendMessage = () => {
-  if (!inputText.value.trim()) return
+const sendMessage = async () => {
+  if (!inputText.value.trim() || isStreaming.value) return
 
-  messages.value.push({
+  const prompt = inputText.value.trim()
+  const userMessage: Message = {
     role: 'user',
-    content: inputText.value
-  })
-
-  emit('send-prompt', inputText.value)
+    content: prompt
+  }
+  messages.value.push(userMessage)
   inputText.value = ''
 
-  isTyping.value = true
-  setTimeout(() => {
+  scrollToBottom()
+
+  try {
+    // 如果还没有应用ID，先创建应用
+    if (!currentAppId.value) {
+      isTyping.value = true
+      
+      const response = await createApp({
+        initPrompt: prompt,
+        codeGenType: selectedCodeGenType.value,
+        appName: prompt.substring(0, 20) || '我的应用',
+      })
+
+      if (response.code === 0 && response.data) {
+        currentAppId.value = String(response.data)
+        isTyping.value = false
+        
+        // 创建应用成功后，触发父组件事件（用于跳转等操作）
+        emit('send-prompt', prompt, selectedCodeGenType.value)
+        
+        // 开始流式对话
+        await startStreamChat(prompt)
+      } else {
+        isTyping.value = false
+        messages.value.push({
+          role: 'ai',
+          content: `❌ 创建应用失败: ${response.message || '未知错误'}`
+        })
+      }
+    } else {
+      // 如果已有应用ID，直接开始流式对话
+      await startStreamChat(prompt)
+    }
+  } catch (error: any) {
     isTyping.value = false
+    console.error('发送消息失败:', error)
     messages.value.push({
       role: 'ai',
-      content: '好的！我正在为你生成代码，请稍等...'
+      content: `❌ 错误: ${error.message || '发送消息失败，请重试'}`
     })
     scrollToBottom()
-  }, 1500)
+  }
+}
 
+const startStreamChat = async (userMessage: string) => {
+  if (!currentAppId.value || isStreaming.value) return
+
+  // 创建AI响应消息（初始为空，流式填充）
+  const aiMessage: Message = {
+    role: 'ai',
+    content: '',
+    loading: true
+  }
+  messages.value.push(aiMessage)
+  isStreaming.value = true
+  
+  await nextTick()
+  scrollToBottom()
+
+  const aiMessageIndex = messages.value.length - 1
+  let eventSource: EventSource | null = null
+  let streamCompleted = false
+
+  try {
+    // 使用 request 中的 baseURL 配置（与 appController 一致）
+    const baseURL = request.defaults.baseURL || 'http://localhost:8123/api'
+
+    // 构建URL参数
+    const params = new URLSearchParams({
+      appId: currentAppId.value,
+      message: userMessage,
+    })
+
+    const url = `${baseURL}/app/chat/gen/code?${params.toString()}`
+
+    // 创建 EventSource 连接（注意：标准 EventSource 不支持配置对象参数）
+    eventSource = new EventSource(url)
+    currentEventSource = eventSource
+
+    let fullContent = ''
+
+    // 处理接收到的消息
+    eventSource.onmessage = function (event) {
+      if (streamCompleted) return
+
+      try {
+        // 解析JSON包装的数据
+        const parsed = JSON.parse(event.data)
+        const content = parsed.d
+
+        // 拼接内容
+        if (content !== undefined && content !== null) {
+          fullContent += content
+          messages.value[aiMessageIndex].content = fullContent
+          messages.value[aiMessageIndex].loading = false
+          scrollToBottom()
+        }
+      } catch (error) {
+        console.error('解析消息失败:', error)
+        handleStreamError(error, aiMessageIndex)
+      }
+    }
+
+    // 处理done事件
+    eventSource.addEventListener('done', function () {
+      if (streamCompleted) return
+
+      streamCompleted = true
+      isStreaming.value = false
+      messages.value[aiMessageIndex].loading = false
+      eventSource?.close()
+      currentEventSource = null
+    })
+
+    // 处理business-error事件（后端限流等错误）
+    eventSource.addEventListener('business-error', function (event: MessageEvent) {
+      if (streamCompleted) return
+
+      try {
+        const errorData = JSON.parse(event.data)
+        console.error('SSE业务错误事件:', errorData)
+
+        const errorMessage = errorData.message || '生成过程中出现错误'
+        messages.value[aiMessageIndex].content = `❌ ${errorMessage}`
+        messages.value[aiMessageIndex].loading = false
+
+        streamCompleted = true
+        isStreaming.value = false
+        eventSource?.close()
+        currentEventSource = null
+      } catch (parseError) {
+        console.error('解析错误事件失败:', parseError, '原始数据:', event.data)
+        handleStreamError(new Error('服务器返回错误'), aiMessageIndex)
+      }
+    })
+
+    // 处理错误
+    eventSource.onerror = function () {
+      if (streamCompleted || !isStreaming.value) return
+      
+      // 检查是否是正常的连接关闭
+      if (eventSource?.readyState === EventSource.CLOSED || 
+          eventSource?.readyState === EventSource.CONNECTING) {
+        // 连接关闭或正在连接中，可能是正常结束
+        if (messages.value[aiMessageIndex].content.trim() === '') {
+          // 如果没有接收到任何内容就关闭了，可能是错误
+          handleStreamError(new Error('连接意外关闭'), aiMessageIndex)
+        } else {
+          streamCompleted = true
+          isStreaming.value = false
+          messages.value[aiMessageIndex].loading = false
+          eventSource?.close()
+          currentEventSource = null
+        }
+      } else {
+        handleStreamError(new Error('SSE连接错误'), aiMessageIndex)
+      }
+    }
+  } catch (error) {
+    console.error('创建 EventSource 失败：', error)
+    handleStreamError(error, aiMessageIndex)
+  }
+}
+
+const handleStreamError = (error: unknown, aiMessageIndex: number) => {
+  console.error('流式响应错误：', error)
+  if (messages.value[aiMessageIndex]) {
+    if (messages.value[aiMessageIndex].content.trim() === '') {
+      messages.value[aiMessageIndex].content = '抱歉，生成过程中出现了错误，请重试。'
+    }
+    messages.value[aiMessageIndex].loading = false
+  }
+  isStreaming.value = false
+  if (currentEventSource) {
+    currentEventSource.close()
+    currentEventSource = null
+  }
   scrollToBottom()
 }
 
@@ -146,6 +311,14 @@ const scrollToBottom = () => {
     }
   })
 }
+
+// 组件卸载时清理 EventSource
+onUnmounted(() => {
+  if (currentEventSource) {
+    currentEventSource.close()
+    currentEventSource = null
+  }
+})
 </script>
 
 <style scoped>
