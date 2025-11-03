@@ -24,6 +24,43 @@
           >
             新窗口打开
           </button>
+          <button
+            @click="handleDeploy"
+            v-if="appId && !isDeployed"
+            :disabled="deploying"
+            class="ml-2 px-3 py-1 text-xs text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+          >
+            <span v-if="deploying">部署中...</span>
+            <span v-else>部署</span>
+          </button>
+          <div
+            v-if="appId && isDeployed"
+            class="ml-2 px-3 py-1 text-xs text-green-400 flex items-center gap-1"
+          >
+            <Check class="w-3 h-3" />
+            <span>已部署</span>
+          </div>
+        </div>
+        <!-- 部署地址显示区域 -->
+        <div v-if="deployUrl || isDeployed" class="px-4 py-2 bg-gradient-to-r from-cyan-900/50 to-purple-900/50 border-b border-cyan-500/30 flex items-center gap-2">
+          <div class="flex-1 text-xs">
+            <span class="text-cyan-400">部署地址:</span>
+            <span class="text-cyan-200 ml-2 font-mono break-all">{{ currentDeployUrl }}</span>
+          </div>
+          <button
+            @click="handleOpenDeployUrl"
+            class="px-2 py-1 text-xs text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 rounded transition-all"
+          >
+            打开
+          </button>
+          <button
+            @click="handleCopyDeployUrl"
+            class="px-2 py-1 text-xs text-cyan-400 hover:text-cyan-300 hover:bg-cyan-500/10 rounded transition-all flex items-center gap-1"
+          >
+            <Check v-if="deployUrlCopied" class="w-3 h-3" />
+            <Copy v-else class="w-3 h-3" />
+            <span>{{ deployUrlCopied ? '已复制' : '复制' }}</span>
+          </button>
         </div>
         <div class="flex-1 min-h-[100px] bg-white overflow-hidden flex flex-col">
           <iframe
@@ -73,6 +110,8 @@
 import { ref, computed, watch, onMounted, shallowRef } from 'vue';
 import { Code, Eye, Download, Copy, Check } from 'lucide-vue-next';
 import request from '../../../request';
+import { deployApp } from '../../../api/appController';
+import { STATIC_BASE_URL } from '../../../config/env';
 
 interface Props {
   generatedCode?: string;
@@ -82,6 +121,7 @@ interface Props {
   codeGenType?: string;
   debug?: boolean;
   noPreviewMode?: boolean; // 新增 props
+  appInfo?: any; // 应用信息，包含 deployKey 和 deployedTime
 }
 const props = withDefaults(defineProps<Props>(), {
   opacity: 0.15,
@@ -89,9 +129,32 @@ const props = withDefaults(defineProps<Props>(), {
 });
 const noPreviewMode = computed(() => props.noPreviewMode);
 
+// 定义事件
+const emit = defineEmits<{
+  refreshAppInfo: [];
+}>();
+
 const copied = ref(false);
 const activeView = ref<'preview' | 'code'>('preview');
 const diagnosticsOpen = ref(true);
+
+// 部署相关状态
+const deploying = ref(false);
+const deployUrl = ref<string | null>(null);
+const deployUrlCopied = ref(false);
+
+// 判断应用是否已部署
+const isDeployed = computed(() => {
+  return !!(props.appInfo?.deployKey && props.appInfo?.deployedTime);
+});
+
+// 从应用信息中获取部署地址（如果已部署）
+const getDeployUrlFromAppInfo = () => {
+  if (isDeployed.value && props.appInfo?.deployKey) {
+    return `${STATIC_BASE_URL}/${props.appInfo.deployKey}/`;
+  }
+  return null;
+};
 
 // 调试用：模拟无预览页面模式
 const prevPreviewUrl = shallowRef<string|undefined|null>(undefined);
@@ -208,6 +271,96 @@ const onIframeError = () => {
 const handleOpenInNewTab = () => {
   if (props.previewUrl) {
     window.open(props.previewUrl, '_blank');
+  }
+};
+
+// 部署应用
+const handleDeploy = async () => {
+  if (!props.appId) {
+    console.error('无法部署：应用ID不存在');
+    return;
+  }
+
+  try {
+    deploying.value = true;
+    deployUrl.value = null;
+
+    // 直接传递字符串，避免大整数精度丢失
+    // Spring Boot 会自动将字符串转换为 Long
+    const response = await deployApp({
+      appId: props.appId,
+    });
+
+    if (response && response.code === 0 && response.data) {
+      // 后端返回的格式可能是 http://localhost/{deployKey}/
+      // 需要转换为正确的静态资源访问地址: http://localhost:8123/api/static/{deployKey}/
+      const backendUrl = response.data;
+      let finalDeployUrl = backendUrl;
+      
+      try {
+        // 尝试从后端URL中提取 deployKey
+        // 支持格式：http://localhost/{deployKey}/ 或 http://localhost:8123/{deployKey}/
+        // 正则匹配：协议://域名/部署密钥/
+        const urlMatch = backendUrl.match(/https?:\/\/[^\/]+\/([^\/\s]+)\/?$/);
+        if (urlMatch && urlMatch[1]) {
+          const deployKey = urlMatch[1];
+          // 转换为正确的静态资源访问地址
+          // STATIC_BASE_URL 格式: http://localhost:8123/api/static
+          finalDeployUrl = `${STATIC_BASE_URL}/${deployKey}/`;
+          console.log('提取的deployKey:', deployKey, '转换后的URL:', finalDeployUrl);
+        } else {
+          console.warn('无法从后端URL中提取deployKey:', backendUrl);
+        }
+      } catch (error) {
+        console.warn('解析部署URL失败，使用原始URL:', error);
+      }
+      
+      deployUrl.value = finalDeployUrl;
+      console.log('部署成功，原始地址:', backendUrl, '转换后地址:', finalDeployUrl);
+      
+      // 部署成功后，触发父组件重新获取应用信息
+      setTimeout(() => {
+        emit('refreshAppInfo');
+      }, 500);
+    } else {
+      console.error('部署失败:', response?.message || '未知错误');
+      alert(`部署失败: ${response?.message || '未知错误'}`);
+    }
+  } catch (error: any) {
+    console.error('部署失败：', error);
+    alert(`部署失败: ${error?.message || '网络错误'}`);
+  } finally {
+    deploying.value = false;
+  }
+};
+
+// 获取当前部署URL（优先使用本地状态，否则从appInfo获取）
+const currentDeployUrl = computed(() => {
+  return deployUrl.value || getDeployUrlFromAppInfo();
+});
+
+// 打开部署地址
+const handleOpenDeployUrl = () => {
+  const url = currentDeployUrl.value;
+  if (url) {
+    window.open(url, '_blank');
+  }
+};
+
+// 复制部署地址
+const handleCopyDeployUrl = async () => {
+  const url = currentDeployUrl.value;
+  if (url) {
+    try {
+      await navigator.clipboard.writeText(url);
+      deployUrlCopied.value = true;
+      setTimeout(() => {
+        deployUrlCopied.value = false;
+      }, 2000);
+    } catch (error) {
+      console.error('复制失败：', error);
+      alert('复制失败，请手动复制');
+    }
   }
 };
 
@@ -381,6 +534,17 @@ defineExpose({
   checkPreviewUrlStatus,
   refreshPreview,
 });
+
+// 监听应用信息变化，自动更新部署地址
+watch(() => props.appInfo, (newAppInfo) => {
+  if (newAppInfo && isDeployed.value && !deployUrl.value) {
+    // 如果应用已部署但没有本地部署URL，从appInfo获取
+    const url = getDeployUrlFromAppInfo();
+    if (url) {
+      deployUrl.value = url;
+    }
+  }
+}, { immediate: true });
 
 watch(() => props.previewUrl, (newUrl, oldUrl) => {
   // 当预览URL变化时，自动刷新iframe

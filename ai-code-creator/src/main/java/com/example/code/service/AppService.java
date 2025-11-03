@@ -91,4 +91,12 @@ public interface AppService extends IService<App> {
      * @return AppVO 列表
      */
     List<AppVO> getAppVOList(List<App> appList);
+
+    /**
+     * 异步生成应用截图并更新封面
+     *
+     * @param appId  应用ID
+     * @param appUrl 应用访问URL
+     */
+    public void generateAppScreenshotAsync(Long appId, String appUrl);
 }

@@ -18,7 +18,7 @@ declare namespace API {
   }
 
   type AppDeployRequest = {
-    appId?: number
+    appId?: number | string  // 支持字符串以避免大整数精度丢失
   }
 
   type AppQueryRequest = {

@@ -80,7 +80,9 @@
           :app-id="appId"
           :code-gen-type="appInfo?.codeGenType"
           :no-preview-mode="noPreviewMode"
+          :app-info="appInfo"
           @toggle-no-preview="handleToggleNoPreview"
+          @refresh-app-info="fetchAppInfo"
         />
       </div>
     </div>
