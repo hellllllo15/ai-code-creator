@@ -18,7 +18,7 @@ declare namespace API {
   }
 
   type AppDeployRequest = {
-    appId?: number | string  // 支持字符串以避免大整数精度丢失
+    appId?: number
   }
 
   type AppQueryRequest = {
@@ -148,6 +148,10 @@ declare namespace API {
 
   type DeleteRequest = {
     id?: number
+  }
+
+  type downloadAppCodeParams = {
+    appId: number
   }
 
   type getMyByIdParams = {

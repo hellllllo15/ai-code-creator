@@ -25,6 +25,17 @@
             新窗口打开
           </button>
           <button
+            @click="handleDownload"
+            v-if="appId"
+            :disabled="!isPreviewValid || downloading"
+            class="ml-2 px-3 py-1 text-xs text-purple-400 hover:text-purple-300 hover:bg-purple-500/10 rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+            title="下载应用代码（需要预览页面正常显示）"
+          >
+            <Download class="w-3 h-3" />
+            <span v-if="downloading">下载中...</span>
+            <span v-else>下载</span>
+          </button>
+          <button
             @click="handleDeploy"
             v-if="appId && !isDeployed"
             :disabled="deploying"
@@ -132,6 +143,7 @@ const noPreviewMode = computed(() => props.noPreviewMode);
 // 定义事件
 const emit = defineEmits<{
   refreshAppInfo: [];
+  'toggle-no-preview': [];
 }>();
 
 const copied = ref(false);
@@ -143,9 +155,22 @@ const deploying = ref(false);
 const deployUrl = ref<string | null>(null);
 const deployUrlCopied = ref(false);
 
+// 下载相关状态
+const downloading = ref(false);
+
 // 判断应用是否已部署
 const isDeployed = computed(() => {
   return !!(props.appInfo?.deployKey && props.appInfo?.deployedTime);
+});
+
+// 判断预览页面是否正常显示
+const isPreviewValid = computed(() => {
+  return !!(
+    props.previewUrl && 
+    !noPreviewMode.value && 
+    iframeLoaded.value && 
+    !iframeLoadError.value
+  );
 });
 
 // 从应用信息中获取部署地址（如果已部署）
@@ -221,7 +246,16 @@ const handleDownload = async () => {
     return;
   }
 
+  // 检查预览是否正常
+  if (!isPreviewValid.value) {
+    alert('请等待预览页面正常显示后再下载');
+    return;
+  }
+
   try {
+    downloading.value = true;
+    
+    // 使用 fetch 下载文件（因为返回的是文件流，不是 JSON）
     const API_BASE_URL = request.defaults.baseURL || 'http://localhost:8123/api';
     const url = `${API_BASE_URL}/app/download/${props.appId}`;
     const response = await fetch(url, {
@@ -230,23 +264,34 @@ const handleDownload = async () => {
     });
 
     if (!response.ok) {
-      throw new Error(`下载失败: ${response.status}`);
+      // 尝试解析错误信息
+      const errorData = await response.json().catch(() => null);
+      throw new Error(errorData?.message || `下载失败: ${response.status}`);
     }
 
     // 获取文件名
     const contentDisposition = response.headers.get('Content-Disposition');
-    const fileName = contentDisposition?.match(/filename="(.+)"/)?.[1] || `app-${props.appId}.zip`;
+    const fileName = contentDisposition?.match(/filename="?(.+?)"?$/)?.[1] || 
+                     contentDisposition?.match(/filename\*=(?:UTF-8'')?([^;]+)/)?.[1] ||
+                     `app-${props.appId}.zip`;
 
     // 下载文件
     const blob = await response.blob();
     const downloadUrl = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = downloadUrl;
-    link.download = fileName;
+    link.download = decodeURIComponent(fileName);
+    document.body.appendChild(link);
     link.click();
+    document.body.removeChild(link);
     URL.revokeObjectURL(downloadUrl);
-  } catch (error) {
+    
+    console.log('下载成功');
+  } catch (error: any) {
     console.error('下载失败：', error);
+    alert(`下载失败: ${error?.message || '未知错误'}`);
+  } finally {
+    downloading.value = false;
   }
 };
 

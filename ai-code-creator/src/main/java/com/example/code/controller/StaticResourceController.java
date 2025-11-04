@@ -23,10 +23,17 @@ public class StaticResourceController {
 
     // 应用生成根目录（用于浏览）
     private static final String PREVIEW_ROOT_DIR = AppConstant.CODE_OUTPUT_ROOT_DIR;
+    // 应用部署根目录
+    private static final String DEPLOY_ROOT_DIR = AppConstant.CODE_DEPLOY_ROOT_DIR;
 
     /**
      * 提供静态资源访问，支持目录重定向
      * 访问格式：http://localhost:8123/api/static/{deployKey}[/{fileName}]
+     * 
+     * 查找逻辑：
+     * 1. 优先从部署目录查找（tmp/code_deploy/{deployKey}/）
+     * 2. 如果部署目录不存在，再从预览目录查找（tmp/code_output/{deployKey}/）
+     * 3. 两个目录都不存在则返回404
      */
     @GetMapping("/{deployKey}/**")
     public ResponseEntity<Resource> serveStaticResource(
@@ -46,12 +53,23 @@ public class StaticResourceController {
             if (resourcePath.equals("/")) {
                 resourcePath = "/index.html";
             }
-            // 构建文件路径
-            String filePath = PREVIEW_ROOT_DIR + "/" + deployKey + resourcePath;
-            File file = new File(filePath);
-            // 检查文件是否存在
-            if (!file.exists()) {
-                return ResponseEntity.notFound().build();
+            // 优先从部署目录查找，如果不存在则从预览目录查找
+            String deployFilePath = DEPLOY_ROOT_DIR + "/" + deployKey + resourcePath;
+            File deployFile = new File(deployFilePath);
+            File file;
+            String filePath;
+            if (deployFile.exists()) {
+                // 部署目录中存在文件
+                file = deployFile;
+                filePath = deployFilePath;
+            } else {
+                // 从预览目录查找
+                filePath = PREVIEW_ROOT_DIR + "/" + deployKey + resourcePath;
+                file = new File(filePath);
+                // 如果预览目录也不存在，返回404
+                if (!file.exists()) {
+                    return ResponseEntity.notFound().build();
+                }
             }
             // 返回文件资源
             Resource resource = new FileSystemResource(file);

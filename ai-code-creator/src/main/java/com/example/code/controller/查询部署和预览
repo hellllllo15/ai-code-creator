@@ -1,0 +1,140 @@
+# 部署和预览功能说明
+
+## 一、功能概述
+
+系统提供两种方式访问生成的代码：
+1. **预览模式**：开发阶段查看代码，文件存储在 `tmp/code_output/` 目录
+2. **部署模式**：生产环境访问，文件存储在 `tmp/code_deploy/` 目录
+
+## 二、目录结构
+
+### 预览目录（CODE_OUTPUT_ROOT_DIR）
+- 路径：`tmp/code_output/`
+- 命名规则：`{codeGenType}_{appId}/`
+- 示例：
+  - `tmp/code_output/html_342749418210025472/`
+  - `tmp/code_output/vue_project_342749418210025472/`
+  - `tmp/code_output/multi_file_342749418210025472/`
+
+### 部署目录（CODE_DEPLOY_ROOT_DIR）
+- 路径：`tmp/code_deploy/`
+- 命名规则：`{deployKey}/`
+- 示例：
+  - `tmp/code_deploy/fxymxK/`
+  - `tmp/code_deploy/J0fskY/`
+
+## 三、访问地址
+
+### 预览地址
+- 访问格式：`http://localhost:8123/api/static/{codeGenType}_{appId}/`
+- 示例：
+  - HTML：`http://localhost:8123/api/static/html_342749418210025472/`
+  - Vue项目：`http://localhost:8123/api/static/vue_project_342749418210025472/dist/index.html`
+
+### 部署地址
+- 后端返回格式：`http://localhost/{deployKey}/`
+- 前端转换后：`http://localhost:8123/api/static/{deployKey}/`
+- 示例：`http://localhost:8123/api/static/fxymxK/`
+
+## 四、核心问题与解决方案
+
+### 问题描述
+**修改前**：`StaticResourceController` 只从预览目录（`tmp/code_output/`）查找文件，导致部署文件无法访问。
+
+### 解决方案
+修改 `StaticResourceController.serveStaticResource()` 方法，实现双重查找逻辑：
+
+1. **优先查找部署目录**：`tmp/code_deploy/{deployKey}/`
+2. **回退到预览目录**：`tmp/code_output/{deployKey}/`（向后兼容）
+3. **都不存在返回404**
+
+### 修改代码位置
+文件：`com.example.code.controller.StaticResourceController`
+
+关键修改：
+```java
+// 添加部署目录常量
+private static final String DEPLOY_ROOT_DIR = AppConstant.CODE_DEPLOY_ROOT_DIR;
+
+// 修改文件查找逻辑（第51-68行）
+// 优先从部署目录查找，如果不存在则从预览目录查找
+String deployFilePath = DEPLOY_ROOT_DIR + "/" + deployKey + resourcePath;
+File deployFile = new File(deployFilePath);
+File file;
+String filePath;
+if (deployFile.exists()) {
+    // 部署目录中存在文件
+    file = deployFile;
+    filePath = deployFilePath;
+} else {
+    // 从预览目录查找
+    filePath = PREVIEW_ROOT_DIR + "/" + deployKey + resourcePath;
+    file = new File(filePath);
+    if (!file.exists()) {
+        return ResponseEntity.notFound().build();
+    }
+}
+```
+
+## 五、目录冲突分析
+
+### 命名规则对比
+
+**预览目录命名**：
+- 格式：`{codeGenType}_{appId}`
+- 特点：包含下划线 `_`，包含类型前缀和ID
+
+**部署目录命名**：
+- 格式：`{deployKey}`
+- 特点：6位随机字符串（a-z, A-Z, 0-9），不含下划线
+
+### 冲突概率：**0%**
+
+**原因**：
+1. 预览目录名总是包含下划线 `_`（至少一个）
+2. deployKey 不含下划线
+3. 即使长度相同，字符集也不同（预览目录包含下划线，deployKey 不含）
+
+**结论**：两个目录的命名规则完全不会冲突，不会出现查询错位置的情况。
+
+## 六、前端判断部署状态
+
+### 判断逻辑
+前端通过检查应用信息中的两个字段来判断是否已部署：
+```typescript
+const isDeployed = computed(() => {
+  return !!(props.appInfo?.deployKey && props.appInfo?.deployedTime);
+});
+```
+
+### 判断条件
+- `deployKey` 存在：部署密钥（6位随机字符串）
+- `deployedTime` 存在：部署时间戳
+
+### 数据来源
+通过 `/app/get/my` 接口获取 `AppVO` 对象，包含：
+- `deployKey`：部署密钥
+- `deployedTime`：部署时间
+
+## 七、部署流程
+
+1. **用户点击部署按钮** → 调用 `/app/deploy` 接口
+2. **后端处理**：
+   - 检查或生成 `deployKey`（6位随机字符串）
+   - 从预览目录复制文件到部署目录
+   - 更新数据库（`deployKey` 和 `deployedTime`）
+   - 返回部署URL：`http://localhost/{deployKey}/`
+3. **前端处理**：
+   - 接收部署URL
+   - 提取 `deployKey`
+   - 转换为静态资源访问地址：`http://localhost:8123/api/static/{deployKey}/`
+   - 显示部署地址
+   - 触发应用信息刷新（获取最新的 `deployKey` 和 `deployedTime`）
+
+## 八、注意事项
+
+1. **部署文件位置**：部署文件在 `tmp/code_deploy/` 目录，不在 `tmp/code_output/`
+2. **URL转换**：后端返回的部署URL需要前端转换为正确的静态资源访问路径
+3. **向后兼容**：修改后的代码仍然支持从预览目录访问，确保现有功能不受影响
+4. **重启服务**：修改后端代码后需要重启服务才能生效
+
