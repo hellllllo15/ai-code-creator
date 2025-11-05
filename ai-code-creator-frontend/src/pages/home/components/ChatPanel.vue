@@ -111,10 +111,61 @@
           </div>
         </div>
 
+        <!-- 选中元素提示 -->
+        <div v-if="selectedElementInfo" class="mb-2">
+          <AAlert
+            type="info"
+            closable
+            @close="handleRemoveSelectedElement"
+            class="custom-alert"
+          >
+            <template #message>
+              <div class="selected-element-info">
+                <div class="element-header">
+                  <span class="element-tag">
+                    选中元素：{{ selectedElementInfo.tagName }}
+                  </span>
+                  <span v-if="selectedElementInfo.id" class="element-id">
+                    #{{ selectedElementInfo.id }}
+                  </span>
+                  <span v-if="selectedElementInfo.className" class="element-class">
+                    .{{ selectedElementInfo.className.split(' ').filter(c => c && !c.startsWith('visual-editor-')).join('.') }}
+                  </span>
+                </div>
+                <div class="element-details">
+                  <div v-if="selectedElementInfo.textContent" class="element-item">
+                    <strong>内容:</strong> {{ selectedElementInfo.textContent.substring(0, 50) }}
+                    {{ selectedElementInfo.textContent.length > 50 ? '...' : '' }}
+                  </div>
+                  <div v-if="selectedElementInfo.pagePath" class="element-item">
+                    <strong>页面路径:</strong> {{ selectedElementInfo.pagePath }}
+                  </div>
+                  <div class="element-item">
+                    <strong>选择器:</strong>
+                    <code class="element-selector-code">{{ selectedElementInfo.selector }}</code>
+                  </div>
+                </div>
+              </div>
+            </template>
+          </AAlert>
+        </div>
+
         <!-- 输入框 -->
         <div class="relative">
           <div class="absolute inset-0 bg-gradient-to-r from-cyan-500/20 to-blue-500/20 rounded-lg blur-xl" />
           <div class="relative flex gap-2">
+            <button
+              @click="toggleEditMode"
+              :class="[
+                'px-3 py-2 rounded-lg transition-all',
+                isEditMode 
+                  ? 'bg-gradient-to-r from-purple-500 to-pink-500 hover:from-purple-400 hover:to-pink-400 text-white shadow-lg shadow-purple-500/20' 
+                  : 'bg-slate-900/60 border border-cyan-500/30 text-cyan-400 hover:bg-slate-900/80 hover:border-cyan-400/50'
+              ]"
+              :title="isEditMode ? '退出编辑模式' : '进入编辑模式'"
+            >
+              <Edit class="w-4 h-4" />
+            </button>
             <input
               v-model="inputValue"
               @keypress="handleKeyPress"
@@ -173,10 +224,13 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick, onUnmounted } from 'vue';
-import { Send, History, Trash2, MessageSquare, User, Bot } from 'lucide-vue-next';
+import { Send, History, Trash2, MessageSquare, User, Bot, Edit } from 'lucide-vue-next';
+import { Alert as AAlert } from 'ant-design-vue';
 import request from '../../../request';
 import { listAppChatHistory } from '../../../api/chatHistoryController';
-import MarkdownRenderer from '@/components/MarkdownRenderer.vue';
+// @ts-ignore
+import MarkdownRenderer from '../../../components/MarkdownRenderer.vue';
+import { injectVisualEditorScript, removeVisualEditorScript, type SelectedElementInfo } from '../../../utils/visualEditor';
 
 // 定义聊天历史类型（注意：ID字段可能是字符串，因为响应拦截器转换过）
 interface ChatHistoryItem {
@@ -195,6 +249,7 @@ interface Props {
   opacity?: number;
   appId?: string | null;
   initialMessage?: string | null;
+  previewPanelRef?: any; // PreviewPanel 组件的引用
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -248,6 +303,12 @@ const chatHistory = ref<ChatHistory[]>([
 const isStreaming = ref(false);
 const currentStreamingMessageId = ref<string | null>(null);
 let currentAbortController: AbortController | null = null;
+
+// 可视化编辑相关
+const isEditMode = ref(false);
+const selectedElementInfo = ref<SelectedElementInfo | null>(null);
+let cleanupVisualEditor: (() => void) | null = null;
+let messageHandler: ((event: MessageEvent) => void) | null = null;
 
 // 生成代码 - 使用 fetch + ReadableStream 处理流式响应（支持携带Cookie）
 const generateCode = async (appId: string, userMessage: string, aiMessageIndex: number) => {
@@ -646,6 +707,9 @@ onMounted(() => {
 
 // 清理资源
 onUnmounted(() => {
+  // 退出编辑模式
+  exitEditMode();
+  
   // 组件卸载时取消正在进行的请求
   if (currentAbortController) {
     currentAbortController.abort();
@@ -666,10 +730,134 @@ const scrollToBottom = () => {
   });
 };
 
+// 切换编辑模式
+const toggleEditMode = () => {
+  if (isEditMode.value) {
+    // 退出编辑模式
+    exitEditMode();
+  } else {
+    // 进入编辑模式
+    enterEditMode();
+  }
+};
+
+// 进入编辑模式
+const enterEditMode = () => {
+  if (!props.previewPanelRef) {
+    console.warn('PreviewPanel 引用不可用');
+    return;
+  }
+
+  // 获取 iframe
+  const iframe = props.previewPanelRef.getIframe?.();
+  if (!iframe) {
+    console.warn('无法获取 iframe 引用');
+    return;
+  }
+
+  // 等待 iframe 加载完成
+  if (iframe.contentDocument && iframe.contentDocument.readyState === 'complete') {
+    injectEditor();
+  } else {
+    iframe.addEventListener('load', injectEditor, { once: true });
+  }
+};
+
+// 注入编辑器
+const injectEditor = () => {
+  if (!props.previewPanelRef) return;
+
+  const iframe = props.previewPanelRef.getIframe?.();
+  if (!iframe || !iframe.contentDocument) return;
+
+  try {
+    // 注入可视化编辑脚本
+    cleanupVisualEditor = injectVisualEditorScript(iframe);
+    isEditMode.value = true;
+
+    // 监听 postMessage
+    messageHandler = (event: MessageEvent) => {
+      if (event.data && typeof event.data === 'object' && event.data.type === 'element-selected') {
+        selectedElementInfo.value = event.data.payload as SelectedElementInfo;
+        console.log('接收到选中的元素信息:', selectedElementInfo.value);
+      }
+    };
+
+    window.addEventListener('message', messageHandler);
+  } catch (error) {
+    console.error('注入可视化编辑脚本失败:', error);
+    alert('无法进入编辑模式，请确保预览页面已加载且与主页面同源');
+  }
+};
+
+// 退出编辑模式
+const exitEditMode = () => {
+  // 先通知 iframe 禁用编辑模式
+  if (props.previewPanelRef) {
+    const iframe = props.previewPanelRef.getIframe?.();
+    if (iframe && iframe.contentWindow) {
+      try {
+        iframe.contentWindow.postMessage({
+          type: 'visual-editor-toggle',
+          active: false
+        }, '*');
+      } catch (e) {
+        console.warn('发送禁用编辑模式消息失败:', e);
+      }
+    }
+  }
+
+  // 清理可视化编辑脚本
+  if (cleanupVisualEditor) {
+    cleanupVisualEditor();
+    cleanupVisualEditor = null;
+  }
+
+  // 移除消息监听器
+  if (messageHandler) {
+    window.removeEventListener('message', messageHandler);
+    messageHandler = null;
+  }
+
+  isEditMode.value = false;
+  selectedElementInfo.value = null;
+};
+
+// 移除选中的元素
+const handleRemoveSelectedElement = () => {
+  selectedElementInfo.value = null;
+};
+
 const handleSend = () => {
   if (!inputValue.value.trim() || !props.appId || isStreaming.value) return;
 
-  const message = inputValue.value;
+  let message = inputValue.value.trim();
+  
+  // 如果有选中的元素，将元素信息添加到提示词中
+  if (selectedElementInfo.value) {
+    const elementInfo = selectedElementInfo.value;
+    let elementContext = `\n\n选中元素信息：`;
+    
+    // 页面路径（如果有）
+    if (elementInfo.pagePath) {
+      elementContext += `\n- 页面路径: ${elementInfo.pagePath}`;
+    }
+    
+    // 标签和选择器
+    elementContext += `\n- 标签: ${elementInfo.tagName.toLowerCase()}\n- 选择器: ${elementInfo.selector}`;
+    
+    // 当前内容（如果有，截取100字符）
+    if (elementInfo.textContent) {
+      elementContext += `\n- 当前内容: ${elementInfo.textContent.substring(0, 100)}`;
+    }
+    
+    message += elementContext;
+    
+    // 清除选中元素并退出编辑模式
+    selectedElementInfo.value = null;
+    exitEditMode();
+  }
+
   inputValue.value = '';
   
   // 调用流式接口
@@ -914,5 +1102,83 @@ const getMessageStyle = (index: number) => {
 
 :deep(.overflow-auto::-webkit-scrollbar-thumb:hover) {
   background: rgba(6, 182, 212, 0.5);
+}
+
+/* Ant Design Vue Alert 样式调整 */
+:deep(.custom-alert) {
+  background: rgba(15, 23, 42, 0.8);
+  border: 1px solid rgba(6, 182, 212, 0.3);
+}
+
+:deep(.custom-alert .ant-alert-message) {
+  color: #06b6d4;
+}
+
+:deep(.custom-alert .ant-alert-description) {
+  color: #cbd5e1;
+}
+
+/* 选中元素信息样式 */
+.selected-element-info {
+  line-height: 1.6;
+}
+
+.element-header {
+  margin-bottom: 8px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.element-tag {
+  font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+  font-size: 14px;
+  font-weight: 600;
+  color: #06b6d4;
+}
+
+.element-id {
+  color: #22c55e;
+  font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+  font-size: 13px;
+}
+
+.element-class {
+  color: #fbbf24;
+  font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+  font-size: 13px;
+}
+
+.element-details {
+  margin-top: 8px;
+  font-size: 12px;
+}
+
+.element-item {
+  margin-bottom: 4px;
+  color: #cbd5e1;
+}
+
+.element-item:last-child {
+  margin-bottom: 0;
+}
+
+.element-item strong {
+  color: #94a3b8;
+  margin-right: 4px;
+}
+
+.element-selector-code {
+  font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+  background: rgba(15, 23, 42, 0.6);
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  color: #fbbf24;
+  border: 1px solid rgba(251, 191, 36, 0.3);
+  word-break: break-all;
+  display: inline-block;
+  margin-left: 4px;
 }
 </style>

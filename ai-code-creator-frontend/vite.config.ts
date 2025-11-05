@@ -15,4 +15,14 @@ export default defineConfig({
       '@': fileURLToPath(new URL('./src', import.meta.url))
     },
   },
+  server: {
+    proxy: {
+      // 代理静态资源，实现同源访问
+      '/api/static': {
+        target: 'http://localhost:8123',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/api\/static/, '/api/static'),
+      },
+    },
+  },
 })

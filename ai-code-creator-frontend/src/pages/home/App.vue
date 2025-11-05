@@ -56,6 +56,7 @@
           :opacity="chatPanelOpacityValue" 
           :app-id="appId"
           :initial-message="initialMessage"
+          :preview-panel-ref="previewPanelRef"
           @generate-code="handleGenerateCode"
           @code-generated="handleCodeGenerated" 
         />

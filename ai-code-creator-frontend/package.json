@@ -17,6 +17,7 @@
     "openapi2ts": "openapi2ts"
   },
   "dependencies": {
+    "ant-design-vue": "^4.2.6",
     "axios": "^1.12.2",
     "highlight.js": "^11.11.1",
     "lucide-vue-next": "^0.546.0",

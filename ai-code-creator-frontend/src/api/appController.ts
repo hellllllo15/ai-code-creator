@@ -114,7 +114,7 @@ export async function downloadAppCode(
   options?: { [key: string]: any }
 ) {
   const { appId: param0, ...queryParams } = params
-  return request<any>(`/app/download/${param0}`, {
+  return request<any>(`/app/download/${param0}`, {  
     method: 'GET',
     params: { ...queryParams },
     ...(options || {}),

@@ -2,7 +2,7 @@ package com.example.code.ai;
 
 
 import com.example.code.ai.model.enums.CodeGenTypeEnum;
-import com.example.code.ai.tools.FileWriteTool;
+import com.example.code.ai.tools.*;
 import com.example.code.exception.BusinessException;
 import com.example.code.exception.ErrorCode;
 import com.example.code.service.ChatHistoryService;
@@ -103,11 +103,18 @@ public class AiCodeGeneratorServiceFactory {
             case VUE_PROJECT -> AiServices.builder(AiCodeGeneratorService.class)
                     .streamingChatModel(reasoningStreamingChatModel)
                     .chatMemoryProvider(memoryId -> chatMemory)
-                    .tools(new FileWriteTool())
+                    .tools(
+                            new FileWriteTool(),
+                            new FileReadTool(),
+                            new FileModifyTool(),
+                            new FileDirReadTool(),
+                            new FileDeleteTool()
+                    )
                     .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from(
                             toolExecutionRequest, "Error: there is no tool called " + toolExecutionRequest.name()
                     ))
                     .build();
+
             // HTML 和多文件生成使用默认模型
             case HTML, MULTI_FILE -> AiServices.builder(AiCodeGeneratorService.class)
                     .chatModel(chatModel)

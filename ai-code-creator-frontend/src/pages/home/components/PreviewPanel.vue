@@ -578,6 +578,7 @@ const refreshPreview = () => {
 defineExpose({
   checkPreviewUrlStatus,
   refreshPreview,
+  getIframe: () => previewIframe.value, // 暴露 iframe 引用
 });
 
 // 监听应用信息变化，自动更新部署地址
