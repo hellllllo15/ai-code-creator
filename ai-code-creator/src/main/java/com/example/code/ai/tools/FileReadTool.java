@@ -1,9 +1,11 @@
 package com.example.code.ai.tools;
 
+import cn.hutool.json.JSONObject;
 import com.example.code.constant.AppConstant;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
+import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -15,7 +17,30 @@ import java.nio.file.Paths;
  * 支持 AI 通过工具调用的方式读取文件内容
  */
 //@Slf4j
-public class FileReadTool {
+@Component
+public class FileReadTool extends BaseTool{
+
+
+
+    @Override
+    public String getToolName() {
+        return "readFile";
+    }
+
+    @Override
+    public String getDisplayName() {
+        return "读取文件";
+    }
+
+    @Override
+    public String generateToolExecutedResult(JSONObject arguments) {
+        String relativeFilePath = arguments.getStr("relativeFilePath");
+        return String.format("[工具调用] %s %s", getDisplayName(), relativeFilePath);
+    }
+
+
+
+
 
     @Tool("读取指定路径的文件内容")
     public String readFile(

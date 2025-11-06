@@ -45,6 +45,9 @@ public class AiCodeGeneratorServiceFactory {
     private ChatHistoryService chatHistoryService;
 
 
+    @Resource
+    private ToolManager toolManager;
+
     /**
      * AI 服务实例缓存
      * 缓存策略：
@@ -100,16 +103,11 @@ public class AiCodeGeneratorServiceFactory {
         // 根据代码生成类型选择不同的模型配置
         return switch (codeGenType) {
             // Vue 项目生成使用推理模型
+            // Vue 项目生成使用推理模型
             case VUE_PROJECT -> AiServices.builder(AiCodeGeneratorService.class)
                     .streamingChatModel(reasoningStreamingChatModel)
                     .chatMemoryProvider(memoryId -> chatMemory)
-                    .tools(
-                            new FileWriteTool(),
-                            new FileReadTool(),
-                            new FileModifyTool(),
-                            new FileDirReadTool(),
-                            new FileDeleteTool()
-                    )
+                    .tools(toolManager.getAllTools())
                     .hallucinatedToolNameStrategy(toolExecutionRequest -> ToolExecutionResultMessage.from(
                             toolExecutionRequest, "Error: there is no tool called " + toolExecutionRequest.name()
                     ))
