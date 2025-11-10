@@ -27,5 +27,5 @@ String CODE_OUTPUT_ROOT_DIR = System.getProperty("user.dir") + "/tmp/code_output
     /**
      * 应用部署域名
      */
-    String CODE_DEPLOY_HOST = "http://localhost";
+    String CODE_DEPLOY_HOST = "http://localhost:8123/api/static";
 }

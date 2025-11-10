@@ -17,6 +17,7 @@ import com.mybatisflex.spring.service.impl.ServiceImpl;
 import com.example.code.model.entity.ChatHistory;
 import com.example.code.mapper.ChatHistoryMapper;
 import com.example.code.service.ChatHistoryService;
+import com.example.code.utils.ChatHistoryFilterUtils;
 import dev.langchain4j.data.message.AiMessage;
 import dev.langchain4j.data.message.UserMessage;
 import dev.langchain4j.memory.chat.MessageWindowChatMemory;
@@ -181,8 +182,13 @@ public class ChatHistoryServiceImpl extends ServiceImpl<ChatHistoryMapper, ChatH
                     chatMemory.add(UserMessage.from(history.getMessage()));
                     loadedCount++;
                 } else if (ChatHistoryMessageTypeEnum.AI.getValue().equals(history.getMessageType())) {
-                    chatMemory.add(AiMessage.from(history.getMessage()));
-                    loadedCount++;
+                    // 过滤AI消息中的工具调用文本，只保留纯文本回复
+                    String filteredMessage = ChatHistoryFilterUtils.filterToolCallText(history.getMessage());
+                    // 如果过滤后的消息不为空，才添加到记忆中
+                    if (StrUtil.isNotBlank(filteredMessage)) {
+                        chatMemory.add(AiMessage.from(filteredMessage));
+                        loadedCount++;
+                    }
                 }
             }
           //  log.info("成功为 appId: {} 加载了 {} 条历史对话", appId, loadedCount);

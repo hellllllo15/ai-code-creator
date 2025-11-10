@@ -44,13 +44,15 @@
             <span v-if="deploying">部署中...</span>
             <span v-else>部署</span>
           </button>
-          <div
+          <button
+            @click="handleDeploy"
             v-if="appId && isDeployed"
-            class="ml-2 px-3 py-1 text-xs text-green-400 flex items-center gap-1"
+            :disabled="deploying"
+            class="ml-2 px-3 py-1 text-xs text-green-400 hover:text-green-300 hover:bg-green-500/10 rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
           >
-            <Check class="w-3 h-3" />
-            <span>已部署</span>
-          </div>
+            <span v-if="deploying">部署中...</span>
+            <span v-else>再次部署</span>
+          </button>
         </div>
         <!-- 部署地址显示区域 -->
         <div v-if="deployUrl || isDeployed" class="px-4 py-2 bg-gradient-to-r from-cyan-900/50 to-purple-900/50 border-b border-cyan-500/30 flex items-center gap-2">
@@ -332,9 +334,10 @@ const handleDeploy = async () => {
 
     // 直接传递字符串，避免大整数精度丢失
     // Spring Boot 会自动将字符串转换为 Long
+    // 使用类型断言，因为 props.appId 是 string，但 API 类型定义是 number
     const response = await deployApp({
-      appId: props.appId,
-    });
+      appId: props.appId as any,
+    } as any);
 
     if (response && response.code === 0 && response.data) {
       // 后端返回的格式可能是 http://localhost/{deployKey}/

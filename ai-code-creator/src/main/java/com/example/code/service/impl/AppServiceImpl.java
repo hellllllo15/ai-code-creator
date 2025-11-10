@@ -266,22 +266,20 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
         if (!app.getUserId().equals(loginUser.getId())) {
             throw new BusinessException(ErrorCode.NO_AUTH_ERROR, "无权限部署该应用");
         }
-        // 4. 检查是否已有 deployKey
-        String deployKey = app.getDeployKey();
-        // 没有则生成 6 位 deployKey（大小写字母 + 数字）
-        if (StrUtil.isBlank(deployKey)) {
-            deployKey = RandomUtil.randomString(6);
-        }
-        // 5. 获取代码生成类型，构建源目录路径
+        // 4. 保存旧的部署信息（用于后续清理）
+        String oldDeployKey = app.getDeployKey();
+        // 5. 生成新的 deployKey（6 位大小写字母 + 数字）
+        String deployKey = RandomUtil.randomString(6);
+        // 6. 获取代码生成类型，构建源目录路径
         String codeGenType = app.getCodeGenType();
         String sourceDirName = codeGenType + "_" + appId;
         String sourceDirPath = AppConstant.CODE_OUTPUT_ROOT_DIR + File.separator + sourceDirName;
-        // 6. 检查源目录是否存在
+        // 7. 检查源目录是否存在
         File sourceDir = new File(sourceDirPath);
         if (!sourceDir.exists() || !sourceDir.isDirectory()) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "应用代码不存在，请先生成代码");
         }
-      // 7. Vue 项目特殊处理：执行构建
+        // 8. Vue 项目特殊处理：执行构建
         CodeGenTypeEnum codeGenTypeEnum = CodeGenTypeEnum.getEnumByValue(codeGenType);
         if (codeGenTypeEnum == CodeGenTypeEnum.VUE_PROJECT) {
             // Vue 项目需要构建
@@ -295,25 +293,54 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
            // log.info("Vue 项目构建成功，将部署 dist 目录: {}", distDir.getAbsolutePath());
         }
 
-
-        // 8. 复制文件到部署目录
+        // 9. 复制文件到部署目录
         String deployDirPath = AppConstant.CODE_DEPLOY_ROOT_DIR + File.separator + deployKey;
         try {
             FileUtil.copyContent(sourceDir, new File(deployDirPath), true);
         } catch (Exception e) {
             throw new BusinessException(ErrorCode.SYSTEM_ERROR, "部署失败：" + e.getMessage());
         }
-        // 9. 更新应用的 deployKey 和部署时间
+        // 10. 更新应用的 deployKey 和部署时间（先更新数据库，确保新部署成功）
         App updateApp = new App();
         updateApp.setId(appId);
         updateApp.setDeployKey(deployKey);
         updateApp.setDeployedTime(LocalDateTime.now());
         boolean updateResult = this.updateById(updateApp);
         ThrowUtils.throwIf(!updateResult, ErrorCode.OPERATION_ERROR, "更新应用部署信息失败");
-        // 10. 构建应用访问 URL
+        
+        // 11. 新部署成功后，清理旧的部署（删除旧文件和清空旧数据）
+        if (StrUtil.isNotBlank(oldDeployKey)) {
+            // 11.1 删除旧的部署目录
+            String oldDeployDirPath = AppConstant.CODE_DEPLOY_ROOT_DIR + File.separator + oldDeployKey;
+            File oldDeployDir = new File(oldDeployDirPath);
+            if (oldDeployDir.exists() && oldDeployDir.isDirectory()) {
+                try {
+                    FileUtil.del(oldDeployDir);
+                } catch (Exception e) {
+                    // 记录日志但不阻止部署流程（新部署已成功）
+                    // log.warn("删除旧部署目录失败: {}", oldDeployDirPath, e);
+                }
+            }
+            // 注意：不需要再清空数据库，因为已经在步骤10中更新为新值
+        }
+        
+        // 12. 构建应用访问 URL（用于返回给前端）
         String appDeployUrl = String.format("%s/%s/", AppConstant.CODE_DEPLOY_HOST, deployKey);
-// 11. 异步生成截图并更新应用封面
-        generateAppScreenshotAsync(appId, appDeployUrl);
+        
+        // 13. 构建预览URL用于截图（预览代码和部署代码内容一致，且预览地址更可靠）
+        String previewBaseUrl = "http://localhost:8123/api/static";
+        String previewUrl;
+        if (codeGenTypeEnum == CodeGenTypeEnum.VUE_PROJECT) {
+            // Vue项目需要访问 dist/index.html
+            previewUrl = String.format("%s/%s_%s/dist/index.html", previewBaseUrl, codeGenType, appId);
+        } else {
+            // 非Vue项目直接访问目录
+            previewUrl = String.format("%s/%s_%s/", previewBaseUrl, codeGenType, appId);
+        }
+        
+        // 14. 异步生成截图并更新应用封面（使用预览地址，更可靠）
+        generateAppScreenshotAsync(appId, previewUrl);
+        
         return appDeployUrl;
 
     }
@@ -412,16 +439,26 @@ public class AppServiceImpl extends ServiceImpl<AppMapper, App>  implements AppS
     public void generateAppScreenshotAsync(Long appId, String appUrl) {
         // 使用虚拟线程异步执行
         Thread.startVirtualThread(() -> {
-// 调用截图服务生成截图并上传
-            String webPageScreenshot = WebScreenshotUtils.saveWebPageScreenshot(appUrl);
-
-
-            // 更新应用封面字段
-            App updateApp = new App();
-            updateApp.setId(appId);
-            updateApp.setCover(webPageScreenshot);
-            boolean updated = this.updateById(updateApp);
-            ThrowUtils.throwIf(!updated, ErrorCode.OPERATION_ERROR, "更新应用封面字段失败");
+            try {
+                // 调用截图服务生成截图并上传
+                String webPageScreenshot = WebScreenshotUtils.saveWebPageScreenshot(appUrl);
+                
+                // 只有当截图成功生成时才更新数据库
+                if (StrUtil.isNotBlank(webPageScreenshot)) {
+                    // 更新应用封面字段
+                    App updateApp = new App();
+                    updateApp.setId(appId);
+                    updateApp.setCover(webPageScreenshot);
+                    boolean updated = this.updateById(updateApp);
+                    ThrowUtils.throwIf(!updated, ErrorCode.OPERATION_ERROR, "更新应用封面字段失败");
+                } else {
+                    // 截图失败时记录日志，但不抛出异常（避免影响部署流程）
+                    System.out.println("应用封面截图生成失败，应用ID: " + appId + ", 部署URL: " + appUrl);
+                }
+            } catch (Exception e) {
+                // 捕获所有异常，避免影响部署流程
+                System.err.println("生成应用封面截图时发生异常，应用ID: " + appId + ", 部署URL: " + appUrl + ", 错误: " + e.getMessage());
+            }
         });
     }
 }

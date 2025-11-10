@@ -122,32 +122,15 @@ const sendMessage = async () => {
   scrollToBottom()
 
   try {
-    // 如果还没有应用ID，先创建应用
+    // 如果还没有应用ID，只触发父组件事件，让父组件统一处理创建应用和跳转
     if (!currentAppId.value) {
       isTyping.value = true
       
-      const response = await createApp({
-        initPrompt: prompt,
-        codeGenType: selectedCodeGenType.value,
-        appName: prompt.substring(0, 20) || '我的应用',
-      })
-
-      if (response.code === 0 && response.data) {
-        currentAppId.value = String(response.data)
-        isTyping.value = false
-        
-        // 创建应用成功后，触发父组件事件（用于跳转等操作）
-        emit('send-prompt', prompt, selectedCodeGenType.value)
-        
-        // 开始流式对话
-        await startStreamChat(prompt)
-      } else {
-        isTyping.value = false
-        messages.value.push({
-          role: 'ai',
-          content: `❌ 创建应用失败: ${response.message || '未知错误'}`
-        })
-      }
+      // 触发父组件事件，让父组件创建应用并跳转
+      // 不要在子组件中创建应用，避免重复创建
+      emit('send-prompt', prompt, selectedCodeGenType.value)
+      
+      isTyping.value = false
     } else {
       // 如果已有应用ID，直接开始流式对话
       await startStreamChat(prompt)

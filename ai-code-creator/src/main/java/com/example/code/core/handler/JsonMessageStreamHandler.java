@@ -1,6 +1,5 @@
 package com.example.code.core.handler;
 
-import cn.hutool.core.io.FileUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
@@ -55,20 +54,30 @@ public class JsonMessageStreamHandler {
         StringBuilder chatHistoryStringBuilder = new StringBuilder();
         // 用于跟踪已经见过的工具ID，判断是否是第一次调用
         Set<String> seenToolIds = new HashSet<>();
+        String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + "/vue_project_" + appId;
+        
+        // 处理代码生成流，完成后追加构建进度流
         return originFlux
                 .map(chunk -> {
                     // 解析每个 JSON 消息块
                     return handleJsonMessageChunk(chunk, chatHistoryStringBuilder, seenToolIds);
                 })
                 .filter(StrUtil::isNotEmpty) // 过滤空字串
-                .doOnComplete(() -> {
-                    // 流式响应完成后，添加 AI 消息到对话历史
-                    String aiResponse = chatHistoryStringBuilder.toString();
-                    chatHistoryService.addChatMessage(appId, aiResponse, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
-                    // 异步构造 Vue 项目
-                    String projectPath = AppConstant.CODE_OUTPUT_ROOT_DIR + "/vue_project_" + appId;
-                    vueProjectBuilder.buildProjectAsync(projectPath);
-                })
+                .concatWith(
+                    // 代码生成完成后，推送构建进度
+                    Flux.defer(() -> {
+                        // 流式响应完成后，添加 AI 消息到对话历史
+                        String aiResponse = chatHistoryStringBuilder.toString();
+                        chatHistoryService.addChatMessage(appId, aiResponse, ChatHistoryMessageTypeEnum.AI.getValue(), loginUser.getId());
+                        // 返回构建进度流
+                        return vueProjectBuilder.buildProjectWithProgress(projectPath)
+                                .onErrorResume(error -> {
+                                    // 构建失败时，推送错误信息
+                                    log.error("构建 Vue 项目失败: {}", error.getMessage(), error);
+                                    return Flux.just("\n\n❌ 构建失败: " + error.getMessage() + "\n\n");
+                                });
+                    })
+                )
                 .doOnError(error -> {
                     // 如果AI回复失败，也要记录错误消息
                     String errorMessage = "AI回复失败: " + error.getMessage();

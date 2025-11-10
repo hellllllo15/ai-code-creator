@@ -3,6 +3,8 @@ package com.example.code.core.builder;
 import cn.hutool.core.util.RuntimeUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+import reactor.core.publisher.Flux;
+import reactor.core.scheduler.Schedulers;
 
 import java.io.File;
 import java.util.concurrent.TimeUnit;
@@ -154,6 +156,63 @@ public class VueProjectBuilder {
                 log.error("异步构建 Vue 项目时发生异常: {}", e.getMessage(), e);
             }
         });
+    }
+
+    /**
+     * 构建 Vue 项目并推送进度（返回Flux用于SSE推送）
+     *
+     * @param projectPath 项目根目录路径
+     * @return 构建进度流
+     */
+    public Flux<String> buildProjectWithProgress(String projectPath) {
+        return Flux.<String>create(sink -> {
+            try {
+                File projectDir = new File(projectPath);
+                if (!projectDir.exists() || !projectDir.isDirectory()) {
+                    sink.error(new RuntimeException("项目目录不存在: " + projectPath));
+                    return;
+                }
+                // 检查 package.json 是否存在
+                File packageJson = new File(projectDir, "package.json");
+                if (!packageJson.exists()) {
+                    sink.error(new RuntimeException("package.json 文件不存在: " + packageJson.getAbsolutePath()));
+                    return;
+                }
+                
+                sink.next("\n\n🔨 开始构建 Vue 项目...\n\n");
+                
+                // 执行 npm install
+                sink.next("📦 正在安装依赖 (npm install)...\n");
+                boolean installSuccess = executeNpmInstall(projectDir);
+                if (!installSuccess) {
+                    sink.error(new RuntimeException("npm install 执行失败"));
+                    return;
+                }
+                sink.next("✅ 依赖安装完成\n");
+                
+                // 执行 npm run build
+                sink.next("🏗️ 正在构建项目 (npm run build)...\n");
+                boolean buildSuccess = executeNpmBuild(projectDir);
+                if (!buildSuccess) {
+                    sink.error(new RuntimeException("npm run build 执行失败"));
+                    return;
+                }
+                
+                // 验证 dist 目录是否生成
+                File distDir = new File(projectDir, "dist");
+                if (!distDir.exists()) {
+                    sink.error(new RuntimeException("构建完成但 dist 目录未生成"));
+                    return;
+                }
+                
+                sink.next("✅ 构建完成！dist 目录已生成\n\n");
+                sink.complete();
+            } catch (Exception e) {
+                log.error("构建 Vue 项目时发生异常: {}", e.getMessage(), e);
+                sink.error(e);
+            }
+        })
+        .subscribeOn(Schedulers.boundedElastic()); // 在后台线程执行，避免阻塞
     }
 
 }

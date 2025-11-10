@@ -5,6 +5,7 @@ import com.example.code.constant.AppConstant;
 import dev.langchain4j.agent.tool.P;
 import dev.langchain4j.agent.tool.Tool;
 import dev.langchain4j.agent.tool.ToolMemoryId;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -17,7 +18,7 @@ import java.nio.file.StandardOpenOption;
  * 文件修改工具
  * 支持 AI 通过工具调用的方式修改文件内容
  */
-//@Slf4j
+@Slf4j
 @Component
 public class FileModifyTool extends BaseTool{
 
@@ -84,11 +85,11 @@ public class FileModifyTool extends BaseTool{
                 return "信息：替换后文件内容未发生变化 - " + relativeFilePath;
             }
             Files.writeString(path, modifiedContent, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
-          //  log.info("成功修改文件: {}", path.toAbsolutePath());
+            log.info("成功修改文件: {}", path.toAbsolutePath());
             return "文件修改成功: " + relativeFilePath;
         } catch (IOException e) {
             String errorMessage = "修改文件失败: " + relativeFilePath + ", 错误: " + e.getMessage();
-            //log.error(errorMessage, e);
+            log.error(errorMessage, e);
             return errorMessage;
         }
     }
