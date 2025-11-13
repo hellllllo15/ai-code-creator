@@ -53,6 +53,7 @@ const emit = defineEmits<{
 
 const isDragging = ref(false);
 const dividerRef = ref<HTMLDivElement | null>(null);
+let dragOverlay: HTMLDivElement | null = null;
 
 const handleStyle = computed(() => ({
   opacity: isDragging.value ? 1 : 0,
@@ -82,12 +83,30 @@ const handleMouseUp = () => {
   isDragging.value = false;
   document.body.style.cursor = '';
   document.body.style.userSelect = '';
+  if (dragOverlay && dragOverlay.parentNode) {
+    dragOverlay.parentNode.removeChild(dragOverlay);
+  }
+  dragOverlay = null;
 };
 
 const handleMouseDown = () => {
   isDragging.value = true;
   document.body.style.cursor = 'col-resize';
   document.body.style.userSelect = 'none';
+  if (!dragOverlay) {
+    dragOverlay = document.createElement('div');
+    Object.assign(dragOverlay.style, {
+      position: 'fixed',
+      top: '0',
+      left: '0',
+      width: '100vw',
+      height: '100vh',
+      cursor: 'col-resize',
+      zIndex: '9999',
+      background: 'transparent',
+    });
+    document.body.appendChild(dragOverlay);
+  }
 };
 
 onMounted(() => {
@@ -101,6 +120,10 @@ onUnmounted(() => {
   // 清理样式
   document.body.style.cursor = '';
   document.body.style.userSelect = '';
+  if (dragOverlay && dragOverlay.parentNode) {
+    dragOverlay.parentNode.removeChild(dragOverlay);
+  }
+  dragOverlay = null;
 });
 </script>
 

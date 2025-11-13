@@ -10,6 +10,15 @@
     >
       <div class="h-full px-6 flex items-center justify-between">
         <div class="flex items-center gap-3">
+          <!-- 返回按钮 -->
+          <button
+            @click="handleGoBack"
+            class="flex items-center justify-center w-10 h-10 rounded-lg bg-slate-800/50 hover:bg-slate-700/50 border border-cyan-500/30 hover:border-cyan-500/50 transition-all duration-200 group"
+            title="返回主页"
+          >
+            <ArrowLeft class="w-5 h-5 text-cyan-400 group-hover:text-cyan-300 transition-colors" />
+          </button>
+          
           <div
             class="w-10 h-10 rounded-lg bg-gradient-to-br from-cyan-500 via-purple-500 to-pink-500 flex items-center justify-center"
             :style="logoGlow"
@@ -97,8 +106,8 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, computed, watch } from 'vue';
-import { useRoute } from 'vue-router';
-import { Sparkles, Zap } from 'lucide-vue-next';
+import { useRoute, useRouter } from 'vue-router';
+import { Sparkles, Zap, ArrowLeft } from 'lucide-vue-next';
 import SciFiBackground from './components/SciFiBackground.vue';
 import ChatPanel from './components/ChatPanel.vue';
 import PreviewPanel from './components/PreviewPanel.vue';
@@ -111,6 +120,7 @@ import type { ComponentPublicInstance } from 'vue';
 import './index.css';
 
 const route = useRoute();
+const router = useRouter();
 const leftWidth = ref(40);
 const generatedCode = ref('');
 const previewUrl = ref<string | null>(null);
@@ -118,9 +128,14 @@ const appInfo = ref<any>(null);
 const debugEnabled = ref(route.query.debug === '1');
 const previewPanelRef = ref<ComponentPublicInstance<{ checkPreviewUrlStatus: (url: string) => Promise<boolean>; refreshPreview: () => void }> | null>(null);
 
-// 从路由参数获取appId和初始消息（同步获取，确保ChatPanel能立即收到props）
-const appId = ref<string | null>((route.query.appId as string) || null);
-const initialMessage = ref<string | null>((route.query.message as string) || null);
+// 从sessionStorage或路由参数获取appId和初始消息
+// 优先从sessionStorage读取（不在URL中显示），如果没有则从路由参数读取（兼容旧方式）
+const appId = ref<string | null>(
+  sessionStorage.getItem('currentAppId') || (route.query.appId as string) || null
+);
+const initialMessage = ref<string | null>(
+  sessionStorage.getItem('currentAppMessage') || (route.query.message as string) || null
+);
 
 // 透明度控制值
 const headerOpacityValue = ref(0.4);
@@ -289,6 +304,16 @@ onMounted(() => {
   // 添加home页面特定类到body
   document.body.classList.add('home-page-active');
   
+  // 检查是否有appId，如果没有则重定向到about页面
+  if (!appId.value) {
+    // 清理可能残留的sessionStorage
+    sessionStorage.removeItem('currentAppId')
+    sessionStorage.removeItem('currentAppMessage')
+    // 重定向到about页面
+    router.replace('/about')
+    return
+  }
+  
   // 如果已有appId，获取应用信息
   if (appId.value) {
     fetchAppInfo();
@@ -319,9 +344,19 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  // 移除home页面样式类
   document.body.classList.remove('home-page-active');
+  // 清理可能残留的内联样式
+  document.body.style.background = '';
+  document.body.style.backgroundColor = '';
+  document.documentElement.style.background = '';
+  document.documentElement.style.backgroundColor = '';
   clearInterval(logoGlowInterval);
   clearInterval(zapRotationInterval);
+  
+  // 如果通过浏览器回退离开，清理sessionStorage
+  // 注意：这里不清理，因为可能用户只是想查看其他页面，还会回来
+  // 只有在明确返回about页面时才清理（在handleGoBack中处理）
 });
 
 const handleGenerateCode = (prompt: string) => {
@@ -358,6 +393,15 @@ export default {
 
 const setLeftWidth = (width: number) => {
   leftWidth.value = width;
+};
+
+// 返回about页面
+const handleGoBack = () => {
+  // 清理sessionStorage中的appId和message
+  sessionStorage.removeItem('currentAppId')
+  sessionStorage.removeItem('currentAppMessage')
+  // 使用replace避免历史记录堆积
+  router.replace('/about');
 };
 </script>
 

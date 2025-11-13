@@ -225,7 +225,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted, watch, nextTick, onUnmounted } from 'vue';
 import { Send, History, Trash2, MessageSquare, User, Bot, Edit } from 'lucide-vue-next';
-import { Alert as AAlert } from 'ant-design-vue';
+import { Alert as AAlert, message } from 'ant-design-vue';
 import request from '../../../request';
 import { listAppChatHistory } from '../../../api/chatHistoryController';
 // @ts-ignore
@@ -349,6 +349,7 @@ const generateCode = async (appId: string, userMessage: string, aiMessageIndex: 
     const decoder = new TextDecoder();
     let buffer = '';
     let fullContent = '';
+    let pendingEventType: string | null = null;
 
     // 读取流数据
     while (true) {
@@ -377,9 +378,35 @@ const generateCode = async (appId: string, userMessage: string, aiMessageIndex: 
           // 获取 data: 后面的内容（可能是 data: 或 data:）
           const colonIndex = trimmedLine.indexOf(':');
           const data = trimmedLine.slice(colonIndex + 1).trim();
-          
+
+          // 处理与事件关联的数据
+          if (pendingEventType === 'business-error') {
+            if (data) {
+              try {
+                const errorData = JSON.parse(data);
+                const errorMessage = errorData.message || '生成过程中出现错误';
+                if (messages.value[aiMessageIndex]) {
+                  messages.value[aiMessageIndex].content = `❌ ${errorMessage}`;
+                  messages.value[aiMessageIndex].loading = false;
+                  scrollToBottom();
+                }
+                message.error(errorMessage);
+              } catch (parseError) {
+                console.error('解析错误事件失败:', parseError, '原始数据:', data);
+                handleError(new Error('服务器返回错误'), aiMessageIndex);
+              }
+            }
+            streamCompleted = true;
+            isStreaming.value = false;
+            currentStreamingMessageId.value = null;
+            currentAbortController = null;
+            pendingEventType = null;
+            return;
+          }
+
           // 空数据行（如最后的 data:）忽略
           if (!data || data === '') {
+            pendingEventType = null;
             continue;
           }
 
@@ -400,11 +427,14 @@ const generateCode = async (appId: string, userMessage: string, aiMessageIndex: 
           } catch (error) {
             console.error('解析SSE数据失败:', error, '原始数据:', data);
           }
+          pendingEventType = null;
         } 
         // 处理 event: 行（支持 event: 和 event: 两种格式）
         else if (trimmedLine.startsWith('event:')) {
           const colonIndex = trimmedLine.indexOf(':');
           const eventType = trimmedLine.slice(colonIndex + 1).trim();
+
+          pendingEventType = eventType;
           
           if (eventType === 'done') {
             // 确保内容已更新
@@ -417,34 +447,9 @@ const generateCode = async (appId: string, userMessage: string, aiMessageIndex: 
             isStreaming.value = false;
             currentStreamingMessageId.value = null;
             currentAbortController = null;
+            pendingEventType = null;
             // 触发代码生成完成事件，通知父组件刷新预览
             emit('code-generated');
-            return;
-          } else if (eventType === 'business-error') {
-            // 处理业务错误，获取下一行的data
-            if (i + 1 < lines.length) {
-              const nextLine = lines[i + 1].trim();
-              if (nextLine && nextLine.startsWith('data:')) {
-                const colonIndex = nextLine.indexOf(':');
-                const errorDataStr = nextLine.slice(colonIndex + 1).trim();
-                if (errorDataStr) {
-                  try {
-                    const errorData = JSON.parse(errorDataStr);
-                    const errorMessage = errorData.message || '生成过程中出现错误';
-                    if (messages.value[aiMessageIndex]) {
-                      messages.value[aiMessageIndex].content = `❌ ${errorMessage}`;
-                      messages.value[aiMessageIndex].loading = false;
-                    }
-                  } catch (parseError) {
-                    console.error('解析错误事件失败:', parseError);
-                  }
-                }
-              }
-            }
-            streamCompleted = true;
-            isStreaming.value = false;
-            currentStreamingMessageId.value = null;
-            currentAbortController = null;
             return;
           }
         }

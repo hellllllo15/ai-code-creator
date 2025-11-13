@@ -427,14 +427,29 @@ import AIParticles from './components/AIParticles.vue';
 import NeuralNetwork from './components/NeuralNetwork.vue';
 import DataStream from './components/DataStream.vue';
 import { userLogin, userRegister } from '../../../api/userController';
-import { useRouter } from 'vue-router';
+import { useRouter, useRoute } from 'vue-router';
+import { useUserStore } from '../../../stores/user';
 
 const router = useRouter();
+const route = useRoute();
+const userStore = useUserStore();
 
 // 防止全局样式污染
-onMounted(() => {
+onMounted(async () => {
   document.body.classList.add('login-page-active');
   document.documentElement.classList.add('login-page-active');
+  
+  // 检查是否已登录，如果已登录则自动跳转
+  if (!userStore.hasCheckedLogin) {
+    await userStore.checkLoginStatus();
+  }
+  if (userStore.isLoggedIn) {
+    // 如果有 redirect 参数，跳转到指定页面，否则跳转到 about
+    // 使用 replace 避免浏览器回退
+    const redirect = route.query.redirect as string
+    router.replace(redirect || '/about');
+    return;
+  }
   
   // 启动动画
   const animate = () => {
@@ -492,8 +507,12 @@ const handleLogin = async () => {
     });
 
     if (response.code === 0 && response.data) {
-      // 登录成功，跳转到about页面
-      router.push('/about');
+      // 保存用户信息到 store
+      userStore.setUserInfo(response.data);
+      // 登录成功，如果有 redirect 参数则跳转到指定页面，否则跳转到 about
+      // 使用 replace 避免浏览器回退
+      const redirect = route.query.redirect as string
+      router.replace(redirect || '/about');
     } else {
       errorMessage.value = response.message || '登录失败';
     }

@@ -36,7 +36,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeMount, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import NavBar from './components/NavBar.vue'
 import AIChatSection from './components/AIChatSection.vue'
@@ -52,10 +52,42 @@ import './style.css'
 const router = useRouter()
 const isLoading = ref(true)
 
+// 清理其他页面的样式类，确保about页面的样式正确
+onBeforeMount(() => {
+  // 移除其他页面可能添加的样式类
+  document.body.classList.remove('home-page-active')
+  document.body.classList.remove('login-page-active')
+  document.documentElement.classList.remove('login-page-active')
+  
+  // 确保body和html的背景样式正确
+  document.body.style.background = ''
+  document.body.style.backgroundColor = ''
+  document.documentElement.style.background = ''
+  document.documentElement.style.backgroundColor = ''
+})
+
 onMounted(() => {
+  // 再次确保样式类已清理
+  document.body.classList.remove('home-page-active')
+  document.body.classList.remove('login-page-active')
+  document.documentElement.classList.remove('login-page-active')
+  
+  // 确保背景样式正确
+  document.body.style.background = ''
+  document.body.style.backgroundColor = ''
+  document.documentElement.style.background = ''
+  document.documentElement.style.backgroundColor = ''
+  
   setTimeout(() => {
     isLoading.value = false
   }, 2000)
+})
+
+onUnmounted(() => {
+  // 清理时也确保样式正确
+  document.body.classList.remove('home-page-active')
+  document.body.classList.remove('login-page-active')
+  document.documentElement.classList.remove('login-page-active')
 })
 
 type CodeGenType = 'html' | 'multi_file' | 'vue_project'
@@ -73,13 +105,15 @@ const handleSendPrompt = async (prompt: string, codeGenType: CodeGenType) => {
       // 将Long类型转换为字符串，避免精度丢失
       const appIdStr = String(response.data)
       
-      // 跳转到home页面，传递应用ID作为查询参数（字符串形式）
+      // 将appId和message存储到sessionStorage，不在URL中显示
+      sessionStorage.setItem('currentAppId', appIdStr)
+      if (prompt) {
+        sessionStorage.setItem('currentAppMessage', prompt)
+      }
+      
+      // 跳转到home页面，使用push保留历史记录，方便浏览器回退
       router.push({
         path: '/home',
-        query: {
-          appId: appIdStr,
-          message: prompt, // 同时传递初始消息
-        },
       })
     } else {
       console.error('创建应用失败:', response.message)
@@ -97,6 +131,12 @@ const handleSendPrompt = async (prompt: string, codeGenType: CodeGenType) => {
 html, body {
   margin: 0 !important;
   padding: 0 !important;
+}
+
+/* 确保about页面时body背景正确 */
+body:not(.home-page-active):not(.login-page-active) {
+  background: linear-gradient(to bottom right, #0f172a, #581c87, #0f172a) !important;
+  background-color: #0f172a !important;
 }
 
 #app {

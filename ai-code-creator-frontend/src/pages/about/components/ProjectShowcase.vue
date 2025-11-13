@@ -145,13 +145,13 @@ const handleProjectClick = (appId: number | string | undefined) => {
   // 确保appId是字符串格式（响应拦截器已将ID字段转换为字符串）
   const appIdStr = typeof appId === 'string' ? appId : String(appId)
   
-  // 跳转到home页面，只传递appId，不传递message
-  router.push({
-    path: '/home',
-    query: {
-      appId: appIdStr,
-    },
-  })
+  // 将 appId 写入 sessionStorage，避免出现在 URL 中
+  sessionStorage.setItem('currentAppId', appIdStr)
+  // 清理可能残留的 message
+  sessionStorage.removeItem('currentAppMessage')
+  
+  // 跳转到干净的 /home 路径
+  router.push({ path: '/home' })
 }
 
 // 图片加载错误处理

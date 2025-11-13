@@ -541,7 +541,7 @@ const checkPreviewUrlStatus = async (url: string): Promise<boolean> => {
   });
 };
 
-// 刷新iframe预览
+// 刷新iframe预览（使用 replace 避免在 iframe 中叠加历史记录）
 const refreshPreview = () => {
   if (!props.previewUrl) {
     console.warn('预览URL为空，无法刷新');
@@ -564,15 +564,22 @@ const refreshPreview = () => {
       // 获取新的带时间戳的URL（iframeSrc computed会自动计算）
       const newSrc = iframeSrc.value;
       
-      // 强制重新加载iframe：先清空src，再设置新的src
-      previewIframe.value.src = '';
-      
-      setTimeout(() => {
-        if (previewIframe.value) {
-          previewIframe.value.src = newSrc;
-          console.log('手动刷新iframe，新src:', newSrc);
+      try {
+        // 如果同源，则用 replace 避免 iframe 产生新的历史记录
+        const win = previewIframe.value.contentWindow as (Window | null);
+        if (win && typeof win.location?.replace === 'function') {
+          win.location.replace(newSrc);
+          console.log('通过 location.replace 刷新 iframe，新src:', newSrc);
+          return;
         }
-      }, 50);
+      } catch (e) {
+        // 跨域时无法访问 contentWindow，降级为直接设置 src
+        console.warn('无法通过 contentWindow 访问 iframe，降级为直接设置 src:', (e as any)?.message);
+      }
+
+      // 降级方案：直接设置 src（会产生历史，但至少可用）
+      previewIframe.value.setAttribute('src', newSrc);
+      console.log('降级为直接设置 iframe.src，新src:', newSrc);
     }
   }, 150);
 };
